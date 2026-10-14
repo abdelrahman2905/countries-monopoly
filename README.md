@@ -15,6 +15,11 @@ Buy countries, collect rent, and bankrupt your opponents. The last player standi
   pay no rent on each other's countries, a color set owned by teammates together counts as complete (rent doubles and
   you can build), Chance cards that take money from "every opponent" skip teammates, and teammates can give each other
   $50, $100 or $500 at any time. The last team with players still in the game wins together.
+- **Deals:** propose a trade to any player: swap countries, give or take countries for money, or leave money out on
+  either side (a pure gift works too). The other player accepts or declines; bots accept clearly good deals. Countries
+  with houses or hotels can't be traded.
+- **Free country card:** one Chance card per game lets a player take any free country, as long as they own nothing
+  in that color set yet.
 - **Animations:** dice tumble when rolled, pieces hop square by square, and a country's owner bar lights up in the
   buyer's color when it is bought.
 - **Landing on a free country:** buy it, skip it, or put it up for **auction**. Everyone can bid at any time with
@@ -69,6 +74,15 @@ npx wrangler deploy      # or: npm run deploy:server
 ```
 
 It prints your host, like `countries-monopoly.<your-subdomain>.workers.dev`.
+
+#### Auto-deploy the server from GitHub
+
+`.github/workflows/deploy-server.yml` redeploys the server on every push to `main` that touches `party/` or `shared/`
+(after the rules tests pass). One-time setup:
+
+1. Create a token at https://dash.cloudflare.com/profile/api-tokens with the **Edit Cloudflare Workers** template.
+2. Add it as a repository secret: `gh secret set CLOUDFLARE_API_TOKEN` (paste the token when asked).
+3. Add your account id too: `gh secret set CLOUDFLARE_ACCOUNT_ID --body <your-account-id>` (shown by `npx wrangler whoami`).
 
 ### 2. Frontend on Vercel
 

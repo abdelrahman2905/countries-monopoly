@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  BID_INCREMENTS, TEAMS, boardOf, bankBuyPrice, currentPlayer, rentMultiplier, salaryFor, type GameState, type Player,
+  BID_INCREMENTS, TEAMS, boardOf, claimableSquares, bankBuyPrice, currentPlayer, rentMultiplier, salaryFor, type GameState, type Player,
 } from "../../shared/game";
 import type { useGame } from "../lib/useGame";
 import { Flag } from "./CountryArt";
@@ -62,7 +62,9 @@ export default function TurnPanel({ g, me, busy, send, onLeave }: Props) {
         {!cur.connected && " (offline)"}
       </div>
 
-      {g.phase === "sell" ? (
+      {g.phase === "claim" ? (
+        myTurn ? <ClaimPanel g={g} me={me} send={send} /> : <div className="text-sm text-amber-300">🎁 {cur.name} is choosing a free country…</div>
+      ) : g.phase === "sell" ? (
         myTurn && loan ? (
           <SellPanel g={g} me={me} send={send} />
         ) : (
@@ -182,6 +184,34 @@ function SellPanel({ g, me, send }: { g: GameState; me: Player; send: Send }) {
             </button>
           ) : null,
         )}
+      </div>
+    </div>
+  );
+}
+
+function ClaimPanel({ g, me, send }: { g: GameState; me: Player; send: Send }) {
+  const board = boardOf(g);
+  const options = claimableSquares(g, me.id).sort((a, b) => {
+    const x = board[a], y = board[b];
+    return (y.kind === "country" ? y.price : 0) - (x.kind === "country" ? x.price : 0);
+  });
+  return (
+    <div className="pop flex max-w-full flex-col items-center gap-2">
+      <div className="text-sm font-bold text-emerald-300">🎁 Free country!</div>
+      <div className="text-sm">Pick any free country, for free. It must be in a color set where you own nothing yet.</div>
+      <div className="flex max-h-40 flex-wrap justify-center gap-1 overflow-y-auto">
+        {options.map((i) => {
+          const s = board[i];
+          return s.kind === "country" ? (
+            <button
+              key={i}
+              onClick={() => send({ type: "CLAIM", square: i })}
+              className="flex items-center gap-1 rounded-md bg-emerald-700 px-2 py-1 text-xs font-semibold hover:bg-emerald-600"
+            >
+              <Flag iso={s.iso} name={s.name} className="w-5" /> {s.name} <span className="text-emerald-200">${s.price}</span>
+            </button>
+          ) : null;
+        })}
       </div>
     </div>
   );

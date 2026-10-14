@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import {
   apply, botAction, buildError, currentPlayer, groupSquares, houseCost, newGame, rentFor, BOARD,
-  DEFAULT_SETTINGS, MAX_BUILD_LEVEL, BIG_BOARD, jailIndex, TEAMS, boardOf, ownsGroup, PLAYER_COLORS, repairBill, salaryFor, finishAuction, botAuctionBid,
+  DEFAULT_SETTINGS, MAX_BUILD_LEVEL, BIG_BOARD, jailIndex, TEAMS, boardOf, ownsGroup, PLAYER_COLORS, repairBill, salaryFor, finishAuction, botAuctionBid, resolveBotTrades, claimableSquares, FREE_COUNTRY_CARD, CHANCE_DECK_SIZE,
 } from "../shared/game";
 
 function seeded(seed: number) {
@@ -197,6 +197,108 @@ assert.deepEqual(prices, [...prices].sort((a, b) => a - b), "prices rise around 
   assert.equal(g.turn, 0); // b skipped, back to a
   assert.equal(g.players[1].jailed, false);
   assert.equal(g.phase, "roll");
+}
+
+// Trading: countries for countries and/or money, either side may add no money at all
+{
+  const g = newGame("tr");
+  apply(g, "a", { type: "JOIN", name: "A" });
+  apply(g, "b", { type: "JOIN", name: "B" });
+  apply(g, "a", { type: "START" });
+  const [e, f] = groupSquares(BOARD, 1); // Egypt, Morocco
+  const [n] = groupSquares(BOARD, 0); // Nigeria
+  g.owners[e] = "a"; g.owners[f] = "b"; g.owners[n] = "b";
+  const A = g.players[0], Bp = g.players[1];
+  const offer = { type: "PROPOSE_TRADE" as const, to: "b", give: [e], take: [f, n], giveMoney: 0, takeMoney: 0 };
+  assert.equal(apply(g, "a", { ...offer, to: "a" }), "Pick another player.");
+  assert.match(apply(g, "a", { ...offer, give: [f] })!, /your own countries/);
+  assert.match(apply(g, "a", { ...offer, take: [e] })!, /no longer own/);
+  assert.equal(apply(g, "a", { ...offer, giveMoney: 9999 }), "You don't have that much money.");
+  assert.equal(apply(g, "a", { ...offer, giveMoney: -5 }), "Invalid amount of money.");
+  assert.equal(apply(g, "a", { type: "PROPOSE_TRADE", to: "b", give: [], take: [], giveMoney: 0, takeMoney: 0 }), "The deal is empty.");
+  assert.equal(apply(g, "a", { ...offer, giveMoney: 100 }), null);
+  assert.equal(g.trades.length, 1);
+  assert.equal(apply(g, "a", { type: "ACCEPT_TRADE", id: 1 }), "That deal is no longer available."); // only the receiver can accept
+  assert.equal(apply(g, "a", { ...offer, giveMoney: 50 }), null); // a new offer replaces the old one
+  assert.equal(g.trades.length, 1);
+  const id = g.trades[0].id;
+  Bp.money = 5;
+  assert.equal(apply(g, "b", { type: "ACCEPT_TRADE", id }), null);
+  assert.equal(g.owners[e], "b");
+  assert.equal(g.owners[f], "a");
+  assert.equal(g.owners[n], "a");
+  assert.equal(A.money, 1500 - 50);
+  assert.equal(Bp.money, 55);
+  assert.equal(g.trades.length, 0);
+  // money requested by the proposer, no countries given
+  assert.equal(apply(g, "b", { type: "PROPOSE_TRADE", to: "a", give: [e], take: [], giveMoney: 0, takeMoney: 200 }), null);
+  assert.equal(apply(g, "a", { type: "CANCEL_TRADE", id: g.trades[0].id }), null); // declined
+  assert.equal(g.trades.length, 0);
+  // buildings block a trade; offers become void if ownership changes
+  g.houses[e] = 1;
+  assert.match(apply(g, "b", { type: "PROPOSE_TRADE", to: "a", give: [e], take: [], giveMoney: 0, takeMoney: 10 })!, /without houses/);
+  delete g.houses[e];
+  apply(g, "b", { type: "PROPOSE_TRADE", to: "a", give: [e], take: [], giveMoney: 0, takeMoney: 10 });
+  g.owners[e] = "a";
+  g.phase = "action"; g.turn = 0;
+  apply(g, "a", { type: "GIVE", to: "b", amount: 50 }); // any successful action prunes stale offers
+  assert.equal(g.trades.length, 0);
+  // no trading during an auction
+  g.phase = "auction";
+  assert.match(apply(g, "b", { type: "PROPOSE_TRADE", to: "a", give: [], take: [], giveMoney: 5, takeMoney: 0 })!, /auction/);
+  // bots accept good offers and refuse bad ones
+  const g2 = newGame("trb");
+  apply(g2, "a", { type: "JOIN", name: "A" });
+  apply(g2, "a", { type: "ADD_BOT" });
+  apply(g2, "a", { type: "START" });
+  const bot = g2.players[1];
+  g2.owners[n] = "a"; // Nigeria $60
+  apply(g2, "a", { type: "PROPOSE_TRADE", to: bot.id, give: [n], take: [], giveMoney: 0, takeMoney: 10 });
+  resolveBotTrades(g2);
+  assert.equal(g2.owners[n], bot.id, "bot accepted a good deal");
+  g2.owners[e] = bot.id;
+  apply(g2, "a", { type: "PROPOSE_TRADE", to: bot.id, give: [], take: [e], giveMoney: 10, takeMoney: 0 });
+  resolveBotTrades(g2);
+  assert.equal(g2.owners[e], bot.id, "bot refused a bad deal");
+  assert.equal(g2.trades.length, 0);
+}
+
+// Free-country Chance card: once per game, pick any free country in a color set where you own nothing
+{
+  const g = newGame("fc");
+  apply(g, "a", { type: "JOIN", name: "A" });
+  apply(g, "b", { type: "JOIN", name: "B" });
+  apply(g, "a", { type: "START" });
+  const me = g.players[0];
+  const [e, f] = groupSquares(BOARD, 1);
+  g.owners[e] = "a"; // a already owns a country in group 1
+  g.owners[groupSquares(BOARD, 2)[0]] = "b";
+  const claimable = claimableSquares(g, "a");
+  assert.ok(!claimable.includes(f), "same color set is excluded");
+  assert.ok(claimable.includes(groupSquares(BOARD, 2)[1]), "free country elsewhere is allowed");
+  assert.ok(!claimable.includes(groupSquares(BOARD, 2)[0]), "owned country is excluded");
+  const drawFree = () => {
+    g.phase = "roll"; g.turn = 0; me.pos = 5; // chance square 13 = 5 + 4 + 4
+    const seq = [0.5, 0.5, (FREE_COUNTRY_CARD + 0.5) / CHANCE_DECK_SIZE];
+    let k = 0;
+    apply(g, "a", { type: "ROLL" }, () => seq[Math.min(k++, 2)]);
+  };
+  drawFree();
+  assert.equal(g.phase, "claim");
+  assert.equal(g.freeCountryUsed, true);
+  assert.equal(apply(g, "b", { type: "CLAIM", square: groupSquares(BOARD, 2)[1] }), "You can't claim a country now.");
+  assert.match(apply(g, "a", { type: "CLAIM", square: f })!, /color set where you own nothing/);
+  assert.match(apply(g, "a", { type: "CLAIM", square: groupSquares(BOARD, 2)[0] })!, /free country/);
+  assert.equal(apply(g, "a", { type: "ROLL" }), "You can't roll now.");
+  const money = me.money;
+  const pick = groupSquares(BOARD, 2)[1];
+  assert.equal(apply(g, "a", { type: "CLAIM", square: pick }), null);
+  assert.equal(g.owners[pick], "a");
+  assert.equal(me.money, money, "free");
+  assert.equal(g.phase, "action");
+  // the card never comes back
+  drawFree();
+  assert.notEqual(g.phase, "claim");
 }
 
 // Teams: big map, rent-free land for teammates, shared color sets, gifts, last team standing wins

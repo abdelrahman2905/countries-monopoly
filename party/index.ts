@@ -1,6 +1,6 @@
 import { Server, routePartykitRequest, type Connection } from "partyserver";
 import {
-  AUCTION_BID_SECONDS, AUCTION_FIRST_SECONDS, DEFAULT_SETTINGS, apply, botAction, botAuctionBid, currentPlayer, finishAuction, newGame,
+  AUCTION_BID_SECONDS, AUCTION_FIRST_SECONDS, DEFAULT_SETTINGS, apply, botAction, botAuctionBid, currentPlayer, finishAuction, newGame, resolveBotTrades,
   type Action, type GameState,
 } from "../shared/game";
 
@@ -11,7 +11,7 @@ type Env = { Main: DurableObjectNamespace<GameServer> };
 
 const VALID_ACTIONS = new Set([
   "SET_PROFILE", "SET_SETTINGS", "ADD_BOT", "START", "ROLL", "BUY", "AUCTION", "BID", "TAKE_LOAN", "REPAY",
-  "SELL_COUNTRY", "BUILD", "SELL", "END_TURN", "GIVE",
+  "SELL_COUNTRY", "BUILD", "SELL", "END_TURN", "GIVE", "PROPOSE_TRADE", "ACCEPT_TRADE", "CANCEL_TRADE", "CLAIM",
 ]);
 const MAX_MSG_BYTES = 2048;
 const MAX_MSGS_PER_SEC = 20;
@@ -85,6 +85,7 @@ export class GameServer extends Server<Env> {
     } else if (msg.type === "ACTION" && VALID_ACTIONS.has(msg.action?.type)) {
       const id = this.conns.get(sender.id);
       error = id ? apply(this.game, id, msg.action) : "Join the room first.";
+      if (!error && msg.action.type === "PROPOSE_TRADE") resolveBotTrades(this.game); // bots answer right away
     } else return;
 
     if (error) sender.send(JSON.stringify({ type: "ERROR", message: error }));
@@ -132,7 +133,7 @@ export class GameServer extends Server<Env> {
         g.auction.deadline = Date.now() + (g.auction.bidderId ? AUCTION_BID_SECONDS : AUCTION_FIRST_SECONDS) * 1000;
       }
     } else this.auctionKey = "";
-    const inGame = g.phase === "roll" || g.phase === "action" || g.phase === "sell";
+    const inGame = g.phase === "roll" || g.phase === "action" || g.phase === "sell" || g.phase === "claim";
     if (!inGame || g.settings.turnTimer <= 0) { g.turnDeadline = null; this.turnKey = ""; return; }
     const key = `${g.phase}:${g.turn}:${g.round}:${g.dice}:${g.canBuy}`;
     if (key !== this.turnKey || g.turnDeadline === null) {
@@ -170,7 +171,7 @@ export class GameServer extends Server<Env> {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     if (!this.hasPlayersOnline()) return;
     if (g.phase === "auction") return this.scheduleAuction();
-    if (g.phase !== "roll" && g.phase !== "action" && g.phase !== "sell") return;
+    if (g.phase !== "roll" && g.phase !== "action" && g.phase !== "sell" && g.phase !== "claim") return;
     const cur = currentPlayer(g);
     if (!cur) return;
     let delay: number | null = null;

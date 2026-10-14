@@ -218,9 +218,20 @@ export const TEAMS = [
 export const GIVE_AMOUNTS = [50, 100, 500] as const;
 
 // "auction": everyone bids on a free country; "sell": a player with an overdue loan must sell a country to the bank
-export type Phase = "lobby" | "roll" | "action" | "auction" | "sell" | "over";
+// "claim": a player drew the free-country Chance card and must pick their country
+export type Phase = "lobby" | "roll" | "action" | "auction" | "sell" | "claim" | "over";
 
 export type Loan = { debt: number; due: number }; // debt owed to the bank; due = round by which it must be repaid
+/** A deal offered by `from` to `to`: `from` gives `give` (+ money) and takes `take` (+ money). */
+export type Trade = {
+  id: number;
+  from: string;
+  to: string;
+  give: number[]; // squares `from` hands over
+  take: number[]; // squares `from` asks for
+  giveMoney: number;
+  takeMoney: number;
+};
 export type Auction = { square: number; bid: number; bidderId: string | null; deadline: number | null };
 
 export type GameState = {
@@ -237,6 +248,9 @@ export type GameState = {
   rollCount: number; // increments on every roll (lets the UI animate each roll)
   loans: Record<string, Loan>; // player id -> loan
   auction: Auction | null;
+  trades: Trade[]; // pending deals between players
+  nextTradeId: number;
+  freeCountryUsed: boolean; // the free-country Chance card can only be drawn once per game
   dice: [number, number] | null;
   canBuy: number | null; // square index offered for purchase
   extraRoll: boolean; // rolled doubles, rolls again after this action
@@ -257,6 +271,10 @@ export type Action =
   | { type: "BUY" }
   | { type: "AUCTION" }
   | { type: "BID"; inc: number }
+  | { type: "PROPOSE_TRADE"; to: string; give: number[]; take: number[]; giveMoney: number; takeMoney: number }
+  | { type: "ACCEPT_TRADE"; id: number }
+  | { type: "CANCEL_TRADE"; id: number }
+  | { type: "CLAIM"; square: number }
   | { type: "TAKE_LOAN"; amount: number }
   | { type: "REPAY" }
   | { type: "SELL_COUNTRY"; square: number }
@@ -268,7 +286,7 @@ export type Rng = () => number;
 
 export const newGame = (code: string): GameState => ({
   code, phase: "lobby", settings: { ...DEFAULT_SETTINGS }, hostId: null, players: [], owners: {}, houses: {},
-  pot: 0, turn: 0, round: 0, rollCount: 0, loans: {}, auction: null, dice: null, canBuy: null, extraRoll: false, winnerId: null, winnerTeam: null, turnDeadline: null, log: [],
+  pot: 0, turn: 0, round: 0, rollCount: 0, loans: {}, auction: null, trades: [], nextTradeId: 1, freeCountryUsed: false, dice: null, canBuy: null, extraRoll: false, winnerId: null, winnerTeam: null, turnDeadline: null, log: [],
 });
 
 export const teamMembers = (g: GameState, team: number) => g.players.filter((p) => p.team === team);
@@ -468,10 +486,69 @@ const CHANCE_DECK: Card[] = [
     say(g, `❓ ${p.name}: Global tax day! Every player pays the bank $50.`);
     for (const o of alive(g)) pay(g, o, null, 50);
   },
+  // the rare one: take any free country (only once per game)
+  (g, p) => {
+    g.freeCountryUsed = true;
+    g.phase = "claim";
+    say(g, `🎁 ${p.name} drew "Free country": they may take any free country, for free!`);
+  },
 ];
+export const FREE_COUNTRY_CARD = CHANCE_DECK.length - 1;
+export const CHANCE_DECK_SIZE = CHANCE_DECK.length;
+
+/** Free countries `playerId` may claim: unowned, in a color set where they own nothing yet. */
+export function claimableSquares(g: GameState, playerId: string): number[] {
+  const board = B(g);
+  return board.flatMap((s, i) => {
+    if (s.kind !== "country" || g.owners[i]) return [];
+    const ownsInGroup = groupSquares(board, s.group).some((x) => g.owners[x] === playerId);
+    return ownsInGroup ? [] : [i];
+  });
+}
 
 function drawChance(g: GameState, p: Player, rng: Rng) {
-  CHANCE_DECK[Math.floor(rng() * CHANCE_DECK.length)](g, p, rng);
+  let i = Math.floor(rng() * CHANCE_DECK.length);
+  // the free-country card is skipped if it was already drawn or nothing qualifies
+  if (i === FREE_COUNTRY_CARD && (g.freeCountryUsed || claimableSquares(g, p.id).length === 0)) i = Math.floor(rng() * FREE_COUNTRY_CARD);
+  CHANCE_DECK[i](g, p, rng);
+}
+
+// ---------- Trading ----------
+export const MAX_TRADE_SQUARES = 12;
+
+/** Why this deal is invalid right now (null = fine). Money is checked separately when accepting. */
+export function tradeError(g: GameState, t: Trade): string | null {
+  const from = byId(g, t.from), to = byId(g, t.to);
+  if (!from || !to || from.id === to.id) return "Pick another player.";
+  if (from.bankrupt || to.bankrupt) return "That player is out of the game.";
+  const board = B(g);
+  const okSquares = (list: number[], owner: string) =>
+    list.length <= MAX_TRADE_SQUARES &&
+    new Set(list).size === list.length &&
+    list.every((i) => Number.isInteger(i) && board[i]?.kind === "country" && g.owners[i] === owner && level(g, i) === 0);
+  if (!okSquares(t.give, from.id)) return "You can only offer your own countries without houses or hotels.";
+  if (!okSquares(t.take, to.id)) return "They no longer own those countries (or they have buildings on them).";
+  for (const m of [t.giveMoney, t.takeMoney]) if (!Number.isInteger(m) || m < 0 || m > 1_000_000) return "Invalid amount of money.";
+  if (!t.give.length && !t.take.length && !t.giveMoney && !t.takeMoney) return "The deal is empty.";
+  return null;
+}
+
+const pruneTrades = (g: GameState) => {
+  g.trades = g.phase === "lobby" || g.phase === "over" ? [] : g.trades.filter((t) => tradeError(g, t) === null);
+};
+
+/** A bot's answer to deals offered to it: accept if it gets clearly more value than it gives. */
+export function resolveBotTrades(g: GameState, rng: Rng = Math.random) {
+  const board = B(g);
+  const value = (list: number[]) => list.reduce((sum, i) => sum + (board[i]?.kind === "country" ? board[i].price : 0), 0);
+  for (const t of [...g.trades]) {
+    const bot = byId(g, t.to);
+    if (!bot?.isBot) continue;
+    const gets = value(t.give) + t.giveMoney;
+    const loses = value(t.take) + t.takeMoney;
+    const accept = gets >= loses * 1.15 && bot.money - t.takeMoney >= 100;
+    apply(g, bot.id, accept ? { type: "ACCEPT_TRADE", id: t.id } : { type: "CANCEL_TRADE", id: t.id }, rng);
+  }
 }
 
 function landOn(g: GameState, p: Player, rng: Rng, allowChance = true) {
@@ -607,6 +684,7 @@ export function apply(g: GameState, playerId: string, a: Action, rng: Rng = Math
     if (!g.winnerId) nextTurn(g);
   }
   if (!err) checkWinner(g);
+  pruneTrades(g);
   return err;
 }
 
@@ -716,7 +794,7 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       const raw = me.pos + d1 + d2;
       moveTo(g, me, raw % B(g).length, raw >= B(g).length);
       landOn(g, me, rng);
-      g.phase = "action";
+      if ((g as GameState).phase !== "claim") g.phase = "action";
       checkWinner(g);
       return null;
     }
@@ -797,6 +875,59 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       if (!me.bankrupt) g.phase = "roll";
       return null;
     }
+    case "CLAIM": {
+      if (g.phase !== "claim" || !myTurn) return "You can't claim a country now.";
+      const idx = Number(a.square);
+      if (!claimableSquares(g, me.id).includes(idx)) return "Pick a free country in a color set where you own nothing yet.";
+      const s = B(g)[idx];
+      g.owners[idx] = me.id;
+      g.phase = "action";
+      say(g, `🎁 ${me.name} took ${s.name} for free!`);
+      return null;
+    }
+    case "PROPOSE_TRADE": {
+      if (g.phase !== "roll" && g.phase !== "action") return "You can trade when no auction or special choice is running.";
+      if (me.bankrupt) return "You are out of the game.";
+      const num = (n: unknown) => (typeof n === "number" ? n : NaN);
+      const list = (l: unknown) => (Array.isArray(l) ? l.map(num) : []);
+      const trade: Trade = {
+        id: g.nextTradeId, from: me.id, to: String(a.to),
+        give: list(a.give), take: list(a.take), giveMoney: num(a.giveMoney), takeMoney: num(a.takeMoney),
+      };
+      const err = tradeError(g, trade);
+      if (err) return err;
+      if (me.money < trade.giveMoney) return "You don't have that much money.";
+      g.trades = g.trades.filter((x) => x.from !== me.id); // one open offer per player
+      g.nextTradeId++;
+      g.trades.push(trade);
+      say(g, `🤝 ${me.name} offered a deal to ${byId(g, trade.to)!.name}.`);
+      return null;
+    }
+    case "ACCEPT_TRADE": {
+      const tr = g.trades.find((x) => x.id === a.id);
+      if (!tr || tr.to !== me.id) return "That deal is no longer available.";
+      if (g.phase !== "roll" && g.phase !== "action") return "You can accept deals when no auction or special choice is running.";
+      const err = tradeError(g, tr);
+      if (err) return err;
+      const from = byId(g, tr.from)!;
+      if (from.money < tr.giveMoney) return `${from.name} no longer has that money.`;
+      if (me.money < tr.takeMoney) return "You don't have enough money for this deal.";
+      for (const i of tr.give) g.owners[i] = me.id;
+      for (const i of tr.take) g.owners[i] = from.id;
+      from.money += tr.takeMoney - tr.giveMoney;
+      me.money += tr.giveMoney - tr.takeMoney;
+      g.trades = g.trades.filter((x) => x.id !== tr.id);
+      const names = (l: number[]) => (l.length ? l.map((i) => B(g)[i].name).join(", ") : "nothing");
+      say(g, `🤝 Deal! ${from.name} gives ${names(tr.give)}${tr.giveMoney ? ` + $${tr.giveMoney}` : ""} and gets ${names(tr.take)}${tr.takeMoney ? ` + $${tr.takeMoney}` : ""} from ${me.name}.`);
+      return null;
+    }
+    case "CANCEL_TRADE": {
+      const tr = g.trades.find((x) => x.id === a.id);
+      if (!tr || (tr.from !== me.id && tr.to !== me.id)) return "That deal is no longer available.";
+      g.trades = g.trades.filter((x) => x.id !== tr.id);
+      say(g, `🤝 ${tr.from === me.id ? "The offer was withdrawn" : `${me.name} declined the deal`}.`);
+      return null;
+    }
     case "BUILD": {
       if (!myTurn || (g.phase !== "roll" && g.phase !== "action")) return "You can only build on your own turn.";
       const idx = Number(a.square);
@@ -842,6 +973,14 @@ export function botAction(g: GameState, force = false): Action | null {
     const covering = owned.filter((i) => loan && bankBuyPrice(g, i) >= loan.debt).sort((x, y) => bankBuyPrice(g, x) - bankBuyPrice(g, y));
     const pick = covering[0] ?? owned.sort((x, y) => bankBuyPrice(g, y) - bankBuyPrice(g, x))[0];
     return pick === undefined ? null : { type: "SELL_COUNTRY", square: pick };
+  }
+  if (g.phase === "claim") {
+    const board = B(g);
+    const best = claimableSquares(g, p.id).sort((x, y) => {
+      const a = board[x], b = board[y];
+      return (b.kind === "country" ? b.price : 0) - (a.kind === "country" ? a.price : 0);
+    })[0];
+    return best === undefined ? null : { type: "CLAIM", square: best };
   }
   if (g.phase === "roll") return { type: "ROLL" };
   if (g.phase === "action") {

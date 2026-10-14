@@ -4,6 +4,7 @@ import { useGame } from "../lib/useGame";
 import { useBoardAnimation } from "../lib/useBoardAnimation";
 import BankCard from "./BankCard";
 import Board from "./Board";
+import TradePanel from "./TradePanel";
 import TurnPanel from "./TurnPanel";
 import { Flag } from "./CountryArt";
 import ProfilePicker from "./ProfilePicker";
@@ -204,6 +205,7 @@ function Game({ g, me, send, onLeave }: { g: GameState; me: Player; send: Send; 
       </div>
 
       <aside className="space-y-4">
+        {g.phase !== "over" && !me.bankrupt && <TradePanel g={g} me={me} send={send} />}
         {g.settings.loans && !me.bankrupt && <BankCard g={g} me={me} canAct={canBorrow} send={send} />}
         <section className={card}>
           <h3 className="mb-2 font-bold">{g.settings.teamMode ? "Teams" : "Players"}</h3>
