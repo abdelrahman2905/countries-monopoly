@@ -4,7 +4,7 @@ A real-time multiplayer, Monopoly-style web game where the properties are **coun
 Buy countries, collect rent, and bankrupt your opponents. The last player standing wins.
 
 - **Frontend:** React + Vite + TypeScript + Tailwind CSS (`/src`)
-- **Realtime server:** [PartyKit](https://www.partykit.io) (`/party`) — one room per game
+- **Realtime server:** [PartyServer](https://github.com/cloudflare/partykit/tree/main/packages/partyserver) (the PartyKit API) on Cloudflare Workers (`/party`), one room per game
 - **Shared rules engine:** `/shared/game.ts` (pure TypeScript, used by the server; the client only reads types and board data)
 
 ## How it plays
@@ -35,7 +35,7 @@ Requires Node 18+.
 
 ```bash
 npm install
-npx partykit dev     # terminal 1: game server on http://127.0.0.1:1999
+npm run party        # terminal 1: game server (wrangler dev) on http://127.0.0.1:1999
 npm run dev          # terminal 2: frontend on http://localhost:5173
 ```
 
@@ -46,23 +46,24 @@ Other scripts: `npm run build` (typecheck + production build), `npm test` (simul
 
 ## Deploy
 
-### 1. PartyKit server first
+### 1. Game server first (Cloudflare Workers)
+
+The hosted PartyKit platform shuts down on 23 October 2026, so the server uses **PartyServer** (PartyKit's official
+successor, same API) on Cloudflare Workers + Durable Objects. The free plan is enough. Each room is a Durable Object.
 
 ```bash
-npx partykit login
-npx partykit deploy
+npx wrangler login
+npx wrangler deploy      # or: npm run deploy:server
 ```
 
-It prints your host, like `countries-monopoly.<your-username>.partykit.dev`.
-
-> ⚠️ PartyKit's docs state the hosted PartyKit platform shuts down on **23 October 2026** and point to a migration guide
-> to PartyServer (Cloudflare Workers). Check https://docs.partykit.io before relying on the hosted service.
+It prints your host, like `countries-monopoly.<your-subdomain>.workers.dev`.
 
 ### 2. Frontend on Vercel
 
 1. Push this repo to GitHub and import it at https://vercel.com/new (framework preset: **Vite**; build command `npm run build`; output `dist`).
 2. Add an environment variable:
-   `VITE_PARTYKIT_HOST` = `countries-monopoly.<your-username>.partykit.dev` (host only, no `https://`).
+   `VITE_PARTYKIT_HOST` = `countries-monopoly.<your-subdomain>.workers.dev` (host only, no `https://`).
+   (The variable keeps its name; it just holds the game server host.)
 3. Deploy. Or with the CLI: `npx vercel` then `npx vercel --prod`.
 
 See `.env.example`. Never commit a real `.env` file (it's git-ignored). The app uses no secrets or API keys.
@@ -70,7 +71,8 @@ See `.env.example`. Never commit a real `.env` file (it's git-ignored). The app 
 ## Project structure
 
 ```
-party/index.ts     PartyKit server (rooms, connections, bot timers)
+party/index.ts     Game server (rooms, connections, bot timers, persistence)
+wrangler.jsonc     Cloudflare Worker + Durable Object config
 party/selftest.ts  Headless rules test
 shared/game.ts     Board data, settings + authoritative game engine
 src/               React app (lobby, board, game UI)

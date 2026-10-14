@@ -1,7 +1,10 @@
-import type * as Party from "partykit/server";
+import { Server, routePartykitRequest, type Connection } from "partyserver";
 import { apply, botAction, currentPlayer, newGame, type Action, type GameState } from "../shared/game";
 
 type ClientMsg = { type: "JOIN"; name: string; token: string } | { type: "ACTION"; action: Exclude<Action, { type: "JOIN" }> };
+
+// The binding name "Main" is kebab-cased to the "main" party: clients connect to /parties/main/<room>.
+type Env = { Main: DurableObjectNamespace<GameServer> };
 
 const VALID_ACTIONS = new Set([
   "SET_PROFILE", "SET_SETTINGS", "ADD_BOT", "START", "ROLL", "BUY", "BUILD", "SELL", "END_TURN",
@@ -9,23 +12,20 @@ const VALID_ACTIONS = new Set([
 const MAX_MSG_BYTES = 2048;
 const MAX_MSGS_PER_SEC = 20;
 
-/** One PartyKit room = one game. The server owns all state; clients only send intents. */
-export default class GameServer implements Party.Server {
-  game: GameState;
+/** One room = one game. The server owns all state; clients only send intents. */
+export class GameServer extends Server<Env> {
+  game: GameState = newGame("");
   tokens = new Map<string, string>(); // secret client token -> public player id
   conns = new Map<string, string>(); // connection id -> public player id
   rate = new Map<string, { sec: number; n: number }>();
   timer: ReturnType<typeof setTimeout> | null = null;
   turnKey = "";
 
-  constructor(readonly room: Party.Room) {
-    this.game = newGame(room.id);
-  }
-
-  /** Restore the game after a server restart so players don't lose their match. */
+  /** Restore the game after a restart so players don't lose their match. */
   async onStart() {
+    this.game = newGame(this.name);
     try {
-      const saved = await this.room.storage.get<{ game: GameState; tokens: [string, string][] }>("state");
+      const saved = await this.ctx.storage.get<{ game: GameState; tokens: [string, string][] }>("state");
       if (saved?.game) {
         this.game = saved.game;
         this.tokens = new Map(saved.tokens);
@@ -36,12 +36,12 @@ export default class GameServer implements Party.Server {
     }
   }
 
-  onConnect(conn: Party.Connection) {
+  onConnect(conn: Connection) {
     conn.send(JSON.stringify({ type: "STATE", state: this.game }));
     this.scheduleAuto(); // resume bots / idle players once someone is here
   }
 
-  onMessage(raw: string | ArrayBuffer, sender: Party.Connection) {
+  onMessage(sender: Connection, raw: string | ArrayBuffer | ArrayBufferView) {
     try {
       this.handle(raw, sender);
     } catch (e) {
@@ -50,7 +50,7 @@ export default class GameServer implements Party.Server {
     }
   }
 
-  private handle(raw: string | ArrayBuffer, sender: Party.Connection) {
+  private handle(raw: string | ArrayBuffer | ArrayBufferView, sender: Connection) {
     if (typeof raw !== "string" || raw.length > MAX_MSG_BYTES) return;
     const sec = Math.floor(Date.now() / 1000);
     const r = this.rate.get(sender.id);
@@ -80,10 +80,10 @@ export default class GameServer implements Party.Server {
     } else return;
 
     if (error) sender.send(JSON.stringify({ type: "ERROR", message: error }));
-    this.broadcast();
+    this.broadcastState();
   }
 
-  onClose(conn: Party.Connection) {
+  onClose(conn: Connection) {
     this.rate.delete(conn.id);
     const id = this.conns.get(conn.id);
     this.conns.delete(conn.id);
@@ -99,17 +99,17 @@ export default class GameServer implements Party.Server {
     } else {
       p.connected = false; // the server auto-plays their turns until they return
     }
-    this.broadcast();
+    this.broadcastState();
   }
 
-  onError(_conn: Party.Connection, err: Error) {
+  onError(_conn: Connection, err: unknown) {
     console.error("connection error", err);
   }
 
-  broadcast() {
+  broadcastState() {
     this.updateDeadline();
-    this.room.broadcast(JSON.stringify({ type: "STATE", state: this.game }));
-    this.room.storage.put("state", { game: this.game, tokens: [...this.tokens] }).catch((e) => console.error("persist failed", e));
+    this.broadcast(JSON.stringify({ type: "STATE", state: this.game }));
+    this.ctx.storage.put("state", { game: this.game, tokens: [...this.tokens] }).catch((e) => console.error("persist failed", e));
     this.scheduleAuto();
   }
 
@@ -126,7 +126,7 @@ export default class GameServer implements Party.Server {
   }
 
   private hasPlayersOnline() {
-    for (const _ of this.room.getConnections()) return true;
+    for (const _ of this.getConnections()) return true;
     return false;
   }
 
@@ -148,11 +148,17 @@ export default class GameServer implements Party.Server {
       const a = p && (idle ? botAction(now, true) : botAction(now));
       if (a) {
         if (idle && !p.isBot && p.connected) {
-          this.room.broadcast(JSON.stringify({ type: "NOTICE", message: `${p.name} ran out of time.` }));
+          this.broadcast(JSON.stringify({ type: "NOTICE", message: `${p.name} ran out of time.` }));
         }
         apply(now, p.id, a);
       }
-      this.broadcast();
+      this.broadcastState();
     }, delay);
   }
 }
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    return (await routePartykitRequest(request, env)) || new Response("Countries Monopoly game server", { status: 200 });
+  },
+} satisfies ExportedHandler<Env>;

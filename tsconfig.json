@@ -11,6 +11,5 @@
     "isolatedModules": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "party", "shared"],
-  "exclude": ["party/selftest.ts"]
+  "include": ["src", "shared"]
 }
