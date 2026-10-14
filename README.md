@@ -10,11 +10,14 @@ Buy countries, collect rent, and bankrupt your opponents. The last player standi
 ## How it plays
 
 - Create a room, share the 5-character code (or the link), and 2–6 players join. The host can add 🤖 bots.
-- Everyone starts with **$1500**. Passing **Go** pays **$200**.
+- **The host picks the room settings** in the lobby: starting money, Go salary, max players, houses & hotels on/off,
+  rent inflation on/off, roll-again-on-doubles, and a Free Parking jackpot.
 - Roll two dice. Land on an unowned country to **buy** it; land on an owned one and you pay **rent**.
-  Owning every country of a color set doubles its rent. Doubles give you another roll.
-- 32 squares: Go, Jail, Free Parking, Go To Jail, 4 Chance squares, 24 countries.
-- Rents inflate by 15% every 3 rounds so games always end.
+- **Houses & hotels:** once you own *every* country of a color set, its rent doubles and you can build (on your turn,
+  tap a country, then Build). Build evenly: up to 4 houses, then a hotel. Rent climbs steeply with each level.
+- 40 squares: Go, Jail, Free Parking, Go To Jail, 4 Chance squares, **32 countries** in 12 color sets.
+  Each country tile shows its real flag, its outline and its flag colors.
+- With rent inflation on (default), rents rise 15% every 3 rounds so games always end.
 - Can't pay? You're bankrupt and out. Your countries return to the bank.
 - **Server-authoritative:** the server rolls dice, moves pieces, handles money and turn order. Clients only send intents (`ROLL`, `BUY`, `END_TURN`, …), and the server rejects anything illegal.
 - If a player disconnects mid-game, the server auto-plays their turns; they can rejoin with the same browser.
@@ -62,6 +65,9 @@ See `.env.example`. Never commit a real `.env` file (it's git-ignored). The app 
 ```
 party/index.ts     PartyKit server (rooms, connections, bot timers)
 party/selftest.ts  Headless rules test
-shared/game.ts     Board data + authoritative game engine
+shared/game.ts     Board data, settings + authoritative game engine
 src/               React app (lobby, board, game UI)
+public/flags/      Flag SVGs (from the MIT-licensed flag-icons package)
+src/data/shapes.json  Country outlines (from Natural Earth via world-atlas)
+scripts/gen-assets.mjs  Regenerates the flags and outlines (npm run assets)
 ```

@@ -1,13 +1,17 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 body {
   margin: 0;
-  background: #eef2f7;
-  color: #0f172a;
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #1e3a8a55, transparent),
+    radial-gradient(900px 500px at 100% 10%, #7c3aed33, transparent),
+    #0b1220;
+  color: #f1f5f9;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Color Emoji", sans-serif;
 }
 

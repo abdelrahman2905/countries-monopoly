@@ -3,7 +3,7 @@ import { apply, botAction, currentPlayer, newGame, type Action, type GameState }
 
 type ClientMsg = { type: "JOIN"; name: string; token: string } | { type: "ACTION"; action: Exclude<Action, { type: "JOIN" }> };
 
-const VALID_ACTIONS = new Set(["ADD_BOT", "START", "ROLL", "BUY", "END_TURN"]);
+const VALID_ACTIONS = new Set(["SET_SETTINGS", "ADD_BOT", "START", "ROLL", "BUY", "BUILD", "SELL", "END_TURN"]);
 
 /** One PartyKit room = one game. The server owns all state; clients only send intents. */
 export default class GameServer implements Party.Server {

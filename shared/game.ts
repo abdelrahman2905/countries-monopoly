@@ -1,40 +1,104 @@
 // Pure, server-authoritative game engine. Used by the PartyKit server;
 // the client only imports the types and the BOARD data for rendering.
 
-export const START_MONEY = 1500;
-export const GO_SALARY = 200;
-export const JAIL_INDEX = 8;
+export const JAIL_INDEX = 10;
 export const MIN_PLAYERS = 2;
-export const MAX_PLAYERS = 6;
+export const MAX_BUILD_LEVEL = 5; // 1-4 houses, 5 = hotel
 
+// ---------- Room settings (chosen by the host in the lobby) ----------
+export type Settings = {
+  startMoney: number;
+  goSalary: number;
+  maxPlayers: number;
+  buildings: boolean; // houses & hotels
+  inflation: boolean; // rents rise over time so games end
+  doublesRoll: boolean; // doubles give another roll
+  freeParkingPot: boolean; // fines go to Free Parking, whoever lands there takes the pot
+};
+
+export const DEFAULT_SETTINGS: Settings = {
+  startMoney: 1500, goSalary: 200, maxPlayers: 6,
+  buildings: true, inflation: true, doublesRoll: true, freeParkingPot: false,
+};
+
+export const SETTING_OPTIONS = {
+  startMoney: [1000, 1500, 2000, 3000, 5000],
+  goSalary: [0, 100, 200, 300, 500],
+  maxPlayers: [2, 3, 4, 5, 6],
+} as const;
+
+/** Returns a cleaned copy of `patch` merged into `base`, or an error message. */
+export function mergeSettings(base: Settings, patch: unknown): Settings | string {
+  if (!patch || typeof patch !== "object") return "Invalid settings.";
+  const next: Settings = { ...base };
+  for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
+    if (k in SETTING_OPTIONS) {
+      if (!(SETTING_OPTIONS as Record<string, readonly number[]>)[k].includes(v as number)) return "Invalid value.";
+      (next as Record<string, unknown>)[k] = v;
+    } else if (k in DEFAULT_SETTINGS && typeof v === "boolean") {
+      (next as Record<string, unknown>)[k] = v;
+    } else return "Unknown setting.";
+  }
+  return next;
+}
+
+// ---------- Board ----------
 export type Square =
   | { kind: "go" | "jail" | "parking" | "gotojail" | "chance"; name: string; icon: string }
-  | { kind: "country"; name: string; flag: string; price: number; rent: number; group: number };
+  | {
+      kind: "country"; name: string; iso: string; price: number; rent: number; group: number;
+      colors: [string, string]; // main colors of the flag, used to style the tile
+    };
 
+// 12 color sets: four sets of 2 and eight sets of 3
 export const GROUP_COLORS = [
-  "#a16207", "#0891b2", "#db2777", "#ea580c", "#dc2626", "#ca8a04", "#16a34a", "#2563eb",
+  "#92400e", "#0ea5e9", "#d946ef", "#f97316", "#ef4444", "#eab308",
+  "#22c55e", "#14b8a6", "#6366f1", "#84cc16", "#e11d48", "#1d4ed8",
 ];
 
-const c = (name: string, flag: string, price: number, group: number): Square => ({
-  kind: "country", name, flag, price, rent: Math.round(price / 10), group,
+const c = (iso: string, name: string, price: number, group: number, c1: string, c2: string): Square => ({
+  kind: "country", name, iso, price, rent: Math.round(price / 10), group, colors: [c1, c2],
 });
 const chance = (): Square => ({ kind: "chance", name: "Chance", icon: "❓" });
 
-// 32 squares: 4 corners (0 Go, 8 Jail, 16 Free Parking, 24 Go To Jail), 4 Chance, 24 countries
+// 40 squares: corners at 0 Go, 10 Jail, 20 Free Parking, 30 Go To Jail; 4 Chance; 32 countries
 export const BOARD: Square[] = [
   { kind: "go", name: "Go", icon: "🏁" },
-  c("Egypt", "🇪🇬", 60, 0), c("Kenya", "🇰🇪", 60, 0), chance(),
-  c("Morocco", "🇲🇦", 80, 0), c("India", "🇮🇳", 100, 1), c("Thailand", "🇹🇭", 100, 1), c("Vietnam", "🇻🇳", 120, 1),
+  c("ng", "Nigeria", 60, 0, "#008751", "#ffffff"), c("ke", "Kenya", 60, 0, "#bb0000", "#006600"), chance(),
+  c("eg", "Egypt", 100, 1, "#ce1126", "#c09300"), c("ma", "Morocco", 100, 1, "#c1272d", "#006233"),
+  c("dz", "Algeria", 120, 1, "#006233", "#d21034"),
+  c("th", "Thailand", 140, 2, "#a51931", "#2d2a4a"), c("vn", "Vietnam", 140, 2, "#da251d", "#ffcd00"),
+  c("id", "Indonesia", 160, 2, "#ce1126", "#ffffff"),
   { kind: "jail", name: "Jail", icon: "🔒" },
-  c("Turkey", "🇹🇷", 140, 2), c("Greece", "🇬🇷", 140, 2), chance(), c("Spain", "🇪🇸", 160, 2),
-  c("Italy", "🇮🇹", 180, 3), c("Brazil", "🇧🇷", 180, 3), c("Argentina", "🇦🇷", 200, 3),
+  c("pk", "Pakistan", 180, 3, "#01411c", "#ffffff"), c("bd", "Bangladesh", 180, 3, "#006a4e", "#f42a41"), chance(),
+  c("in", "India", 200, 4, "#ff9933", "#138808"), c("sa", "Saudi Arabia", 200, 4, "#006c35", "#ffffff"),
+  c("ir", "Iran", 220, 4, "#239f40", "#da0000"),
+  c("tr", "Turkey", 240, 5, "#e30a17", "#ffffff"), c("gr", "Greece", 240, 5, "#0d5eaf", "#ffffff"),
+  c("pl", "Poland", 260, 5, "#dc143c", "#ffffff"),
   { kind: "parking", name: "Free Parking", icon: "🅿️" },
-  c("Mexico", "🇲🇽", 220, 4), c("Canada", "🇨🇦", 220, 4), chance(), c("Australia", "🇦🇺", 240, 4),
-  c("France", "🇫🇷", 260, 5), c("Germany", "🇩🇪", 260, 5), c("Japan", "🇯🇵", 280, 5),
+  c("mx", "Mexico", 280, 6, "#006847", "#ce1126"), c("co", "Colombia", 280, 6, "#fcd116", "#003893"), chance(),
+  c("ar", "Argentina", 300, 7, "#74acdf", "#f6b40e"), c("cl", "Chile", 300, 7, "#d52b1e", "#0039a6"),
+  c("br", "Brazil", 320, 7, "#009c3b", "#ffdf00"),
+  c("ca", "Canada", 340, 8, "#d52b1e", "#ffffff"), c("au", "Australia", 340, 8, "#00008b", "#e4002b"),
+  c("es", "Spain", 360, 8, "#aa151b", "#f1bf00"),
   { kind: "gotojail", name: "Go To Jail", icon: "🚔" },
-  c("UK", "🇬🇧", 300, 6), c("Chile", "🇨🇱", 300, 6), chance(), c("Sweden", "🇸🇪", 320, 6),
-  c("Switzerland", "🇨🇭", 350, 7), c("China", "🇨🇳", 380, 7), c("USA", "🇺🇸", 400, 7),
+  c("de", "Germany", 380, 9, "#dd0000", "#ffce00"), c("fr", "France", 380, 9, "#0055a4", "#ef4135"), chance(),
+  c("it", "Italy", 400, 10, "#009246", "#ce2b37"), c("gb", "United Kingdom", 400, 10, "#012169", "#c8102e"),
+  c("jp", "Japan", 420, 10, "#bc002d", "#ffffff"),
+  c("cn", "China", 440, 11, "#de2910", "#ffde00"), c("us", "USA", 460, 11, "#3c3b6e", "#b22234"),
+  c("ru", "Russia", 480, 11, "#0039a6", "#d52b1e"),
 ];
+
+export const groupSquares = (group: number): number[] =>
+  BOARD.flatMap((s, i) => (s.kind === "country" && s.group === group ? [i] : []));
+
+export const houseCost = (index: number): number => {
+  const s = BOARD[index];
+  return s.kind === "country" ? Math.max(10, Math.round(s.price / 20) * 10) : 0;
+};
+
+/** Rent multipliers over the base rent for 0 (no monopoly), 1-4 houses, hotel. */
+export const RENT_BY_LEVEL = [1, 5, 12, 22, 32, 45];
 
 export const PLAYER_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#14b8a6"];
 
@@ -55,9 +119,12 @@ export type Phase = "lobby" | "roll" | "action" | "over";
 export type GameState = {
   code: string;
   phase: Phase;
+  settings: Settings;
   hostId: string | null;
   players: Player[];
   owners: Record<number, string>; // square index -> player id
+  houses: Record<number, number>; // square index -> build level (1-4 houses, 5 hotel)
+  pot: number; // Free Parking jackpot
   turn: number; // index into players
   round: number; // completed rounds, drives rent inflation
   dice: [number, number] | null;
@@ -69,17 +136,20 @@ export type GameState = {
 
 export type Action =
   | { type: "JOIN"; name: string }
+  | { type: "SET_SETTINGS"; settings: Partial<Settings> }
   | { type: "ADD_BOT" }
   | { type: "START" }
   | { type: "ROLL" }
   | { type: "BUY" }
+  | { type: "BUILD"; square: number }
+  | { type: "SELL"; square: number }
   | { type: "END_TURN" };
 
 export type Rng = () => number;
 
 export const newGame = (code: string): GameState => ({
-  code, phase: "lobby", hostId: null, players: [], owners: {}, turn: 0, round: 0,
-  dice: null, canBuy: null, extraRoll: false, winnerId: null, log: [],
+  code, phase: "lobby", settings: { ...DEFAULT_SETTINGS }, hostId: null, players: [], owners: {}, houses: {},
+  pot: 0, turn: 0, round: 0, dice: null, canBuy: null, extraRoll: false, winnerId: null, log: [],
 });
 
 const say = (g: GameState, msg: string) => {
@@ -91,31 +161,71 @@ export const currentPlayer = (g: GameState) => g.players[g.turn];
 const byId = (g: GameState, id: string) => g.players.find((p) => p.id === id);
 
 export const ownsGroup = (g: GameState, playerId: string, group: number) =>
-  BOARD.every((s, i) => s.kind !== "country" || s.group !== group || g.owners[i] === playerId);
+  groupSquares(group).every((i) => g.owners[i] === playerId);
 
-export function rentFor(g: GameState, index: number): number {
-  const s = BOARD[index];
-  if (s.kind !== "country") return 0;
-  const owner = g.owners[index];
-  const base = owner && ownsGroup(g, owner, s.group) ? s.rent * 2 : s.rent;
-  return Math.round(base * rentMultiplier(g));
-}
+export const level = (g: GameState, i: number) => g.houses[i] ?? 0;
 
 /** Rents inflate over time so that every game eventually ends. */
 export const INFLATION_EVERY = 3; // rounds per +15% rent
-export const rentMultiplier = (g: GameState) => 1.15 ** Math.floor(g.round / INFLATION_EVERY);
+export const rentMultiplier = (g: GameState) =>
+  g.settings.inflation ? 1.15 ** Math.floor(g.round / INFLATION_EVERY) : 1;
+
+/** Rent for a given build level (ignores inflation), used by the UI rent table. */
+export function baseRent(index: number, lvl: number, monopoly: boolean): number {
+  const s = BOARD[index];
+  if (s.kind !== "country") return 0;
+  return lvl === 0 ? s.rent * (monopoly ? 2 : 1) : s.rent * RENT_BY_LEVEL[lvl];
+}
+
+export function rentFor(g: GameState, index: number): number {
+  const s = BOARD[index];
+  const owner = g.owners[index];
+  if (s.kind !== "country" || !owner) return 0;
+  const mono = ownsGroup(g, owner, s.group);
+  return Math.round(baseRent(index, mono ? level(g, index) : 0, mono) * rentMultiplier(g));
+}
+
+/** Why `playerId` can't build on `index` right now (null = they can). */
+export function buildError(g: GameState, playerId: string, index: number): string | null {
+  const s = BOARD[index];
+  if (!g.settings.buildings) return "Building is turned off in this room.";
+  if (s?.kind !== "country") return "You can only build on countries.";
+  if (g.owners[index] !== playerId) return "You don't own this country.";
+  if (!ownsGroup(g, playerId, s.group)) return "You need every country in this color set first.";
+  const lvl = level(g, index);
+  if (lvl >= MAX_BUILD_LEVEL) return "Already has a hotel.";
+  const min = Math.min(...groupSquares(s.group).map((i) => level(g, i)));
+  if (lvl > min) return "Build evenly: upgrade your other countries in this set first.";
+  const me = byId(g, playerId)!;
+  if (me.money < houseCost(index)) return `You need $${houseCost(index)}.`;
+  return null;
+}
+
+export function sellError(g: GameState, playerId: string, index: number): string | null {
+  const s = BOARD[index];
+  if (s?.kind !== "country" || g.owners[index] !== playerId) return "You don't own this country.";
+  const lvl = level(g, index);
+  if (lvl < 1) return "Nothing to sell here.";
+  const max = Math.max(...groupSquares(s.group).map((i) => level(g, i)));
+  if (lvl < max) return "Sell evenly: downgrade the highest country in this set first.";
+  return null;
+}
 
 /** Pay `amount` from `from` to `to` (null = bank). Bankrupts `from` if they can't cover it. */
 function pay(g: GameState, from: Player, to: Player | null, amount: number) {
+  const toPot = !to && g.settings.freeParkingPot;
   if (from.money >= amount) {
     from.money -= amount;
     if (to) to.money += amount;
+    else if (toPot) g.pot += amount;
     return;
   }
   if (to) to.money += from.money;
   from.money = 0;
   from.bankrupt = true;
-  for (const [i, o] of Object.entries(g.owners)) if (o === from.id) delete g.owners[Number(i)];
+  for (const [i, o] of Object.entries(g.owners)) {
+    if (o === from.id) { delete g.owners[Number(i)]; delete g.houses[Number(i)]; }
+  }
   say(g, `💥 ${from.name} can't pay $${amount} and is bankrupt!`);
 }
 
@@ -130,9 +240,9 @@ function checkWinner(g: GameState) {
 }
 
 function moveTo(g: GameState, p: Player, target: number, collectGo: boolean) {
-  if (collectGo) {
-    p.money += GO_SALARY;
-    say(g, `${p.name} passed Go and collected $${GO_SALARY}.`);
+  if (collectGo && g.settings.goSalary > 0) {
+    p.money += g.settings.goSalary;
+    say(g, `${p.name} passed Go and collected $${g.settings.goSalary}.`);
   }
   p.pos = target;
 }
@@ -169,6 +279,13 @@ function landOn(g: GameState, p: Player, rng: Rng, allowChance = true) {
       say(g, `🚔 ${p.name} goes to Jail.`);
       sendToJail(g, p);
       break;
+    case "parking":
+      if (g.pot > 0) {
+        say(g, `🅿️ ${p.name} collects $${g.pot} from Free Parking!`);
+        p.money += g.pot;
+        g.pot = 0;
+      }
+      break;
     case "chance":
       if (allowChance) drawChance(g, p, rng);
       break;
@@ -176,11 +293,11 @@ function landOn(g: GameState, p: Player, rng: Rng, allowChance = true) {
       const ownerId = g.owners[p.pos];
       if (!ownerId) {
         if (p.money >= s.price) g.canBuy = p.pos;
-        else say(g, `${p.name} landed on ${s.flag} ${s.name} but can't afford $${s.price}.`);
+        else say(g, `${p.name} landed on ${s.name} but can't afford $${s.price}.`);
       } else if (ownerId !== p.id) {
         const owner = byId(g, ownerId)!;
         const rent = rentFor(g, p.pos);
-        say(g, `${p.name} pays $${rent} rent to ${owner.name} for ${s.flag} ${s.name}.`);
+        say(g, `${p.name} pays $${rent} rent to ${owner.name} for ${s.name}.`);
         pay(g, p, owner, rent);
       }
       break;
@@ -227,10 +344,10 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
   if (a.type === "JOIN") {
     if (me) { me.connected = true; return null; }
     if (g.phase !== "lobby") return "Game already started.";
-    if (g.players.length >= MAX_PLAYERS) return "Room is full.";
+    if (g.players.length >= g.settings.maxPlayers) return "Room is full.";
     const name = a.name.trim().slice(0, 16) || "Player";
     g.players.push({
-      id: playerId, name, color: PLAYER_COLORS[g.players.length], money: START_MONEY, pos: 0,
+      id: playerId, name, color: PLAYER_COLORS[g.players.length], money: g.settings.startMoney, pos: 0,
       jailed: false, bankrupt: false, connected: true, isBot: false,
     });
     g.hostId ??= playerId;
@@ -239,16 +356,26 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
   }
 
   if (!me) return "You are not in this game.";
+  const myTurn = g.phase !== "lobby" && g.phase !== "over" && currentPlayer(g).id === playerId && !me.bankrupt;
 
   switch (a.type) {
+    case "SET_SETTINGS": {
+      if (g.phase !== "lobby") return "Settings are locked once the game starts.";
+      if (g.hostId !== playerId) return "Only the host can change settings.";
+      const next = mergeSettings(g.settings, a.settings);
+      if (typeof next === "string") return next;
+      if (next.maxPlayers < g.players.length) return "Too many players already joined for that limit.";
+      g.settings = next;
+      return null;
+    }
     case "ADD_BOT": {
       if (g.phase !== "lobby") return "Game already started.";
       if (g.hostId !== playerId) return "Only the host can add bots.";
-      if (g.players.length >= MAX_PLAYERS) return "Room is full.";
+      if (g.players.length >= g.settings.maxPlayers) return "Room is full.";
       const n = g.players.filter((p) => p.isBot).length + 1;
       g.players.push({
         id: `bot-${n}-${Math.floor(rng() * 1e6)}`, name: `Bot ${n}`, color: PLAYER_COLORS[g.players.length],
-        money: START_MONEY, pos: 0, jailed: false, bankrupt: false, connected: true, isBot: true,
+        money: g.settings.startMoney, pos: 0, jailed: false, bankrupt: false, connected: true, isBot: true,
       });
       return null;
     }
@@ -256,16 +383,17 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       if (g.phase !== "lobby") return "Game already started.";
       if (g.hostId !== playerId) return "Only the host can start.";
       if (g.players.length < MIN_PLAYERS) return "Need at least 2 players (add a bot!).";
+      for (const p of g.players) p.money = g.settings.startMoney;
       g.phase = "roll";
       g.turn = 0;
       say(g, "🎲 Game started!");
       return null;
     case "ROLL": {
       if (g.phase !== "roll") return "You can't roll now.";
-      if (currentPlayer(g).id !== playerId) return "Not your turn.";
+      if (!myTurn) return "Not your turn.";
       const d1 = 1 + Math.floor(rng() * 6), d2 = 1 + Math.floor(rng() * 6);
       g.dice = [d1, d2];
-      const doubles = d1 === d2;
+      const doubles = d1 === d2 && g.settings.doublesRoll;
       say(g, `${me.name} rolled ${d1} + ${d2}${doubles ? " (doubles!)" : ""}.`);
       g.extraRoll = doubles;
       const raw = me.pos + d1 + d2;
@@ -277,18 +405,39 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
     }
     case "BUY": {
       if (g.phase !== "action" || g.canBuy === null) return "Nothing to buy.";
-      if (currentPlayer(g).id !== playerId) return "Not your turn.";
+      if (!myTurn) return "Not your turn.";
       const s = BOARD[g.canBuy];
       if (s.kind !== "country" || me.money < s.price) return "Can't afford that.";
       me.money -= s.price;
       g.owners[g.canBuy] = me.id;
-      say(g, `${me.name} bought ${s.flag} ${s.name} for $${s.price}.`);
+      say(g, `${me.name} bought ${s.name} for $${s.price}.`);
       g.canBuy = null;
+      return null;
+    }
+    case "BUILD": {
+      if (!myTurn) return "You can only build on your own turn.";
+      const idx = Number(a.square);
+      const err = buildError(g, playerId, idx);
+      if (err) return err;
+      me.money -= houseCost(idx);
+      g.houses[idx] = level(g, idx) + 1;
+      say(g, `🏗️ ${me.name} built a ${g.houses[idx] === MAX_BUILD_LEVEL ? "hotel" : "house"} in ${BOARD[idx].name}.`);
+      return null;
+    }
+    case "SELL": {
+      if (!myTurn) return "You can only sell on your own turn.";
+      const idx = Number(a.square);
+      const err = sellError(g, playerId, idx);
+      if (err) return err;
+      g.houses[idx] = level(g, idx) - 1;
+      if (g.houses[idx] === 0) delete g.houses[idx];
+      me.money += Math.floor(houseCost(idx) / 2);
+      say(g, `${me.name} sold a building in ${BOARD[idx].name}.`);
       return null;
     }
     case "END_TURN": {
       if (g.phase !== "action") return "Roll first.";
-      if (currentPlayer(g).id !== playerId) return "Not your turn.";
+      if (!myTurn) return "Not your turn.";
       if (g.extraRoll && !me.jailed) {
         g.canBuy = null; g.dice = null; g.extraRoll = false; g.phase = "roll";
         say(g, `${me.name} rolls again.`);
@@ -307,6 +456,11 @@ export function botAction(g: GameState): Action | null {
     if (g.canBuy !== null) {
       const s = BOARD[g.canBuy];
       if (s.kind === "country" && p.money - s.price >= 150) return { type: "BUY" };
+    }
+    for (let i = 0; i < BOARD.length; i++) {
+      if (g.owners[i] === p.id && houseCost(i) > 0 && p.money - houseCost(i) >= 250 && !buildError(g, p.id, i)) {
+        return { type: "BUILD", square: i };
+      }
     }
     return { type: "END_TURN" };
   }
