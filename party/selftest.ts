@@ -1,17 +1,34 @@
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
 import {
   apply, botAction, buildError, currentPlayer, groupSquares, houseCost, newGame, rentFor, BOARD,
-  DEFAULT_SETTINGS, MAX_BUILD_LEVEL, PLAYER_COLORS, repairBill, salaryFor, finishAuction, botAuctionBid,
+  DEFAULT_SETTINGS, MAX_BUILD_LEVEL, BIG_BOARD, jailIndex, TEAMS, boardOf, ownsGroup, PLAYER_COLORS, repairBill, salaryFor, finishAuction, botAuctionBid,
 } from "../shared/game";
 
 function seeded(seed: number) {
   return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
 }
 
-// Board sanity
+// Board sanity: classic 40 squares / 32 countries, team-mode 80 squares / 64 countries
 assert.equal(BOARD.length, 40);
 assert.equal(BOARD.filter((s) => s.kind === "country").length, 32);
-for (let gr = 0; gr < 12; gr++) assert.ok([2, 3].includes(groupSquares(gr).length), `group ${gr}`);
+for (let gr = 0; gr < 12; gr++) assert.ok([2, 3].includes(groupSquares(BOARD, gr).length), `group ${gr}`);
+assert.equal(BIG_BOARD.length, 80);
+assert.equal(BIG_BOARD.filter((s) => s.kind === "country").length, 64);
+assert.equal(BIG_BOARD.filter((s) => s.kind === "chance").length, 12);
+assert.equal(new Set(BIG_BOARD.flatMap((s) => (s.kind === "country" ? [s.iso] : []))).size, 64, "unique countries");
+for (let gr = 0; gr < 24; gr++) assert.ok([2, 3].includes(groupSquares(BIG_BOARD, gr).length), `big group ${gr}`);
+assert.deepEqual([0, 20, 40, 60].map((i) => BIG_BOARD[i].kind), ["go", "jail", "parking", "gotojail"]);
+assert.equal(jailIndex(BOARD), 10);
+assert.equal(jailIndex(BIG_BOARD), 20);
+const flagFiles = new Set(readdirSync("public/flags"));
+const shapes = JSON.parse(readFileSync("src/data/shapes.json", "utf8"));
+for (const s of BIG_BOARD) if (s.kind === "country") {
+  assert.ok(flagFiles.has(`${s.iso}.svg`), `flag ${s.iso}`);
+  assert.ok(shapes[s.iso], `shape ${s.iso}`);
+}
+const prices = BIG_BOARD.flatMap((s) => (s.kind === "country" ? [s.price] : []));
+assert.deepEqual(prices, [...prices].sort((a, b) => a - b), "prices rise around the board");
 
 // Rule checks
 {
@@ -54,7 +71,7 @@ for (let gr = 0; gr < 12; gr++) assert.ok([2, 3].includes(groupSquares(gr).lengt
   assert.equal(salaryFor(g), 1000);
   g.settings.bonusAfterRounds = 0;
   assert.equal(salaryFor(g), 300);
-  const [x, y] = groupSquares(0);
+  const [x, y] = groupSquares(BOARD, 0);
   assert.equal(repairBill(g, "a"), 0);
   g.owners[x] = "a"; g.owners[y] = "a";
   assert.equal(repairBill(g, "a"), 30);
@@ -69,7 +86,7 @@ for (let gr = 0; gr < 12; gr++) assert.ok([2, 3].includes(groupSquares(gr).lengt
   apply(g, "a", { type: "ADD_BOT" });
   apply(g, "a", { type: "START" });
   g.settings.inflation = false;
-  const [x, y] = groupSquares(0);
+  const [x, y] = groupSquares(BOARD, 0);
   g.owners[x] = "a";
   assert.match(buildError(g, "a", x)!, /every country/);
   g.owners[y] = "a";
@@ -77,7 +94,7 @@ for (let gr = 0; gr < 12; gr++) assert.ok([2, 3].includes(groupSquares(gr).lengt
   const base = rentFor(g, x);
   assert.equal(apply(g, "a", { type: "BUILD", square: x }), null);
   assert.match(apply(g, "a", { type: "BUILD", square: x })!, /evenly/);
-  assert.equal(g.players[0].money, 1500 - houseCost(x));
+  assert.equal(g.players[0].money, 1500 - houseCost(BOARD, x));
   assert.ok(rentFor(g, x) > base);
   assert.match(apply(g, "a", { type: "SELL", square: y })!, /Nothing|evenly/);
   assert.equal(apply(g, "a", { type: "SELL", square: x }), null);
@@ -97,7 +114,7 @@ for (let gr = 0; gr < 12; gr++) assert.ok([2, 3].includes(groupSquares(gr).lengt
   apply(g, "a", { type: "JOIN", name: "A" });
   apply(g, "b", { type: "JOIN", name: "B" });
   apply(g, "a", { type: "START" });
-  const sq = groupSquares(3)[0]; // Pakistan, price 180
+  const sq = groupSquares(BOARD, 3)[0]; // Pakistan, price 180
   g.phase = "action"; g.turn = 0; g.canBuy = sq;
   g.settings.auctions = false;
   assert.match(apply(g, "a", { type: "AUCTION" })!, /turned off/);
@@ -150,7 +167,7 @@ for (let gr = 0; gr < 12; gr++) assert.ok([2, 3].includes(groupSquares(gr).lengt
   assert.equal(g.players[0].money, 1650 - 220);
 
   // overdue without cash: must choose a country to sell
-  const [x, y] = [groupSquares(11)[2], groupSquares(0)[0]]; // Russia 480, Nigeria 60
+  const [x, y] = [groupSquares(BOARD, 11)[2], groupSquares(BOARD, 0)[0]]; // Russia 480, Nigeria 60
   g.owners[x] = "a"; g.owners[y] = "a";
   g.phase = "roll"; g.turn = 0;
   apply(g, "a", { type: "TAKE_LOAN", amount: 500 });
@@ -182,6 +199,66 @@ for (let gr = 0; gr < 12; gr++) assert.ok([2, 3].includes(groupSquares(gr).lengt
   assert.equal(g.phase, "roll");
 }
 
+// Teams: big map, rent-free land for teammates, shared color sets, gifts, last team standing wins
+{
+  const g = newGame("tm");
+  for (const id of ["a", "b", "c", "d"]) apply(g, id, { type: "JOIN", name: id.toUpperCase() });
+  assert.equal(apply(g, "a", { type: "SET_PROFILE", team: 1 }), "Teams are not enabled in this room.");
+  assert.equal(apply(g, "a", { type: "SET_SETTINGS", settings: { teamMode: true, teamCount: 2 } }), null);
+  assert.deepEqual(g.players.map((p) => p.team), [0, 1, 0, 1]);
+  assert.equal(apply(g, "c", { type: "SET_PROFILE", team: 2 }), "Unknown team.");
+  apply(g, "a", { type: "SET_SETTINGS", settings: { teamCount: 4 } });
+  assert.equal(apply(g, "c", { type: "SET_PROFILE", team: 3 }), null);
+  apply(g, "c", { type: "SET_PROFILE", team: 0 });
+  apply(g, "a", { type: "SET_SETTINGS", settings: { teamCount: 2 } });
+  assert.deepEqual(g.players.map((p) => p.team), [0, 1, 0, 1]);
+  for (const p of g.players) p.team = 0;
+  assert.equal(apply(g, "a", { type: "START" }), "Team mode needs players on at least 2 teams.");
+  g.players[1].team = 1; g.players[3].team = 1;
+  g.players.reverse(); // scramble: d b c a
+  assert.equal(apply(g, g.hostId!, { type: "START" }), null);
+  assert.deepEqual(g.players.map((p) => p.team), [0, 1, 0, 1], "turns alternate between teams");
+  assert.equal(boardOf(g).length, 80);
+
+  assert.equal(apply(g, "a", { type: "GIVE", to: "c", amount: 100 }), null);
+  assert.equal(g.players.find((p) => p.id === "c")!.money, 1600);
+  assert.equal(apply(g, "a", { type: "GIVE", to: "b", amount: 100 }), "You can only give money to a teammate.");
+  assert.equal(apply(g, "a", { type: "GIVE", to: "c", amount: 7 }), "Invalid amount.");
+
+  // landing on a teammate's country is free; on an opponent's it costs rent
+  const idx = BIG_BOARD.findIndex((s, i) => s.kind === "country" && i >= 10);
+  const mover = g.players[0]; // current turn
+  const teammate = g.players.find((p) => p.team === mover.team && p.id !== mover.id)!;
+  const opponent = g.players.find((p) => p.team !== mover.team)!;
+  g.settings.inflation = false;
+  const roll = () => { g.phase = "roll"; g.turn = 0; mover.pos = idx - 8; apply(g, mover.id, { type: "ROLL" }, () => 0.5); };
+  g.owners[idx] = teammate.id;
+  const m0 = mover.money;
+  roll();
+  assert.equal(mover.pos, idx);
+  assert.equal(mover.money, m0 + 0, "no rent for a teammate's country");
+  g.owners[idx] = opponent.id;
+  g.settings.doublesRoll = false;
+  mover.money = 1000;
+  roll();
+  assert.ok(mover.money < 1000, "rent paid to an opponent");
+
+  // a color set shared between teammates counts as complete
+  const [s1, s2] = groupSquares(BIG_BOARD, 0);
+  g.owners = { [s1]: mover.id, [s2]: teammate.id };
+  assert.equal(ownsGroup(g, mover.id, 0), true);
+  assert.equal(ownsGroup(g, opponent.id, 0), false);
+  mover.money = 1500; g.phase = "action"; g.turn = 0;
+  assert.equal(buildError(g, mover.id, s1), null);
+
+  // last team standing wins together
+  for (const p of g.players) if (p.team !== mover.team) p.bankrupt = true;
+  assert.equal(apply(g, mover.id, { type: "GIVE", to: teammate.id, amount: 50 }), null);
+  assert.equal(g.phase, "over");
+  assert.equal(g.winnerTeam, mover.team);
+  assert.match(g.log.at(-1)!, new RegExp(`Team ${TEAMS[mover.team].name} wins`));
+}
+
 // Full games with bots always terminate (inflation on) with exactly one winner and sane state
 for (let seed = 1; seed <= 150; seed++) {
   const rng = seeded(seed);
@@ -191,6 +268,7 @@ for (let seed = 1; seed <= 150; seed++) {
   g.settings = {
     ...DEFAULT_SETTINGS, buildings: seed % 4 !== 0, doublesRoll: seed % 3 !== 0, freeParkingPot: seed % 2 === 0,
     loans: seed % 5 !== 0, auctions: seed % 7 !== 0,
+    teamMode: seed % 3 === 0, teamCount: 2 + (seed % 3),
   };
   for (let i = 0; i < 1 + (seed % 5); i++) apply(g, "h", { type: "ADD_BOT" }, rng);
   assert.equal(apply(g, "h", { type: "START" }, rng), null);
@@ -209,13 +287,19 @@ for (let seed = 1; seed <= 150; seed++) {
     assert.equal(apply(g, currentPlayer(g).id, a, rng), null);
     for (const p of g.players) {
       assert.ok(p.money >= 0, "negative money");
-      assert.ok(p.pos >= 0 && p.pos < BOARD.length);
+      assert.ok(p.pos >= 0 && p.pos < boardOf(g).length);
     }
     for (const [i, o] of Object.entries(g.owners)) assert.ok(!g.players.find((p) => p.id === o)!.bankrupt, "bankrupt owns land");
     for (const i of Object.keys(g.houses)) assert.ok(g.owners[Number(i)], "building on unowned land");
     assert.ok(++steps < 30000, `game ${seed} did not finish`);
   }
-  assert.equal(g.players.filter((p) => !p.bankrupt).length, 1);
-  assert.equal(g.winnerId, g.players.find((p) => !p.bankrupt)!.id);
+  const left = g.players.filter((p) => !p.bankrupt);
+  if (g.settings.teamMode) {
+    assert.ok(left.length >= 1 && left.every((p) => p.team === left[0].team), "one team left");
+    assert.equal(g.winnerTeam, left[0].team);
+  } else {
+    assert.equal(left.length, 1);
+    assert.equal(g.winnerId, left[0].id);
+  }
 }
 console.log("selftest OK");

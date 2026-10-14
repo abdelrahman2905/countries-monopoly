@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { BOARD, MIN_PLAYERS, currentPlayer, groupSquares, level, MAX_BUILD_LEVEL, type GameState, type Player } from "../../shared/game";
+import { useEffect, useRef, useState } from "react";
+import { GIVE_AMOUNTS, MAX_BUILD_LEVEL, MIN_PLAYERS, TEAMS, boardOf, currentPlayer, groupSquares, level, type GameState, type Player } from "../../shared/game";
 import { useGame } from "../lib/useGame";
 import { useBoardAnimation } from "../lib/useBoardAnimation";
 import BankCard from "./BankCard";
@@ -47,7 +47,7 @@ export default function Room({ code, name, onLeave }: Props) {
   };
 
   return (
-    <Shell code={code} onLeave={onLeave} onCopy={copy} copied={copied}>
+    <Shell code={code} onLeave={onLeave} onCopy={copy} copied={copied} wide={g.settings.teamMode && g.phase !== "lobby"}>
       {error && (
         <div className="fixed left-1/2 top-3 z-50 -translate-x-1/2 rounded-lg bg-red-600 px-4 py-2 text-sm text-white shadow-lg">{error}</div>
       )}
@@ -57,9 +57,9 @@ export default function Room({ code, name, onLeave }: Props) {
   );
 }
 
-function Shell(props: { code: string; onLeave: () => void; onCopy?: () => void; copied?: boolean; children: React.ReactNode }) {
+function Shell(props: { code: string; onLeave: () => void; onCopy?: () => void; copied?: boolean; wide?: boolean; children: React.ReactNode }) {
   return (
-    <div className="mx-auto w-full max-w-6xl px-3 py-4 sm:px-6">
+    <div className={`mx-auto w-full px-3 py-4 sm:px-6 ${props.wide ? "max-w-[1600px]" : "max-w-6xl"}`}>
       <header className="mb-4 flex items-center justify-between gap-2">
         <button onClick={props.onLeave} className="text-sm text-slate-400 hover:text-white">← Leave</button>
         <div className="flex items-center gap-2">
@@ -89,13 +89,18 @@ function Lobby({ g, me, send }: { g: GameState; me: Player; send: Send }) {
           Share the code <b className="font-mono text-white">{g.code}</b> or the link. {MIN_PLAYERS}–{g.settings.maxPlayers} players.
         </p>
         <div className="mt-4">
-          <ProfilePicker me={me} taken={new Set(g.players.map((p) => p.color))} onChange={(patch) => send({ type: "SET_PROFILE", ...patch })} />
+          <ProfilePicker me={me} taken={new Set(g.players.map((p) => p.color))} teams={g.settings.teamMode ? g.settings.teamCount : 0} onChange={(patch) => send({ type: "SET_PROFILE", ...patch })} />
         </div>
         <ul className="mt-4 space-y-2">
           {g.players.map((p) => (
             <li key={p.id} className="flex items-center gap-3 rounded-lg bg-white/5 px-3 py-2">
               <span className="h-4 w-4 rounded-full" style={{ background: p.color }} />
               <span className="flex-1 font-medium">{p.name}{p.id === me.id && " (you)"}</span>
+              {g.settings.teamMode && (
+                <span className="rounded-full px-2 py-0.5 text-xs font-semibold text-white" style={{ background: TEAMS[p.team]?.color }}>
+                  {TEAMS[p.team]?.name}
+                </span>
+              )}
               {p.id === g.hostId && <span className="text-xs text-indigo-300">host</span>}
               {p.isBot && <span className="text-xs text-slate-400">🤖 bot</span>}
             </li>
@@ -126,57 +131,104 @@ function Lobby({ g, me, send }: { g: GameState; me: Player; send: Send }) {
 function Game({ g, me, send, onLeave }: { g: GameState; me: Player; send: Send; onLeave: () => void }) {
   const [selected, setSelected] = useState<number | null>(null);
   const anim = useBoardAnimation(g);
+  const scroller = useRef<HTMLDivElement>(null);
+  // the big map is wider than a phone: start centered so the action buttons in the middle are in view
+  useEffect(() => {
+    const el = scroller.current;
+    if (el && el.scrollWidth > el.clientWidth) el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
+  }, [g.settings.teamMode]);
   const cur = currentPlayer(g);
   const myTurn = cur.id === me.id && g.phase !== "over" && !me.bankrupt;
   const canBorrow = myTurn && (g.phase === "roll" || g.phase === "action") && !anim.busy;
 
+  const canGive = (p: Player) =>
+    g.settings.teamMode && g.phase !== "over" && !me.bankrupt && !p.bankrupt && p.id !== me.id && p.team === me.team;
+
+  const playerRow = (p: Player) => {
+    const owned = boardOf(g).flatMap((s, i) => (g.owners[i] === p.id && s.kind === "country" ? [{ s, i }] : []));
+    return (
+      <li key={p.id} className={p.bankrupt ? "opacity-40" : ""}>
+        <div className={`flex items-center gap-2 rounded-lg px-2 py-1 ${p.id === cur.id && g.phase !== "over" ? "bg-indigo-500/20 ring-1 ring-indigo-400" : ""}`}>
+          <span className="h-4 w-4 rounded-full" style={{ background: p.color }} />
+          <span className="flex-1 truncate font-medium">
+            {p.name}{p.id === me.id && " (you)"}{p.isBot && " 🤖"}{p.jailed && " 🔒"}{g.loans[p.id] && <span className="ml-1 text-xs text-rose-300" title="Owes the bank">🏦 -${g.loans[p.id].debt}</span>}
+          </span>
+          <span className="font-mono font-semibold">{p.bankrupt ? "OUT" : `${p.money}`}</span>
+        </div>
+        {canGive(p) && (
+          <div className="mt-1 flex items-center gap-1 pl-6 text-xs">
+            <span className="text-slate-400">🤝 Give:</span>
+            {GIVE_AMOUNTS.map((amount) => (
+              <button
+                key={amount}
+                disabled={me.money < amount}
+                onClick={() => send({ type: "GIVE", to: p.id, amount })}
+                className="rounded bg-white/10 px-1.5 py-0.5 font-semibold hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                ${amount}
+              </button>
+            ))}
+          </div>
+        )}
+        {owned.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1 pl-6 text-xs">
+            {owned.map(({ s, i }) => {
+              if (s.kind !== "country") return null;
+              const lvl = level(g, i);
+              const full = groupSquares(boardOf(g), s.group).every((x) => g.owners[x] === p.id);
+              return (
+                <button
+                  key={i}
+                  onClick={() => setSelected(i)}
+                  className={`flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 hover:bg-white/20 ${full ? "ring-1 ring-emerald-400" : ""}`}
+                  title={full ? "You own the whole set" : s.name}
+                >
+                  <Flag iso={s.iso} name={s.name} className="w-4" />
+                  {s.name}
+                  {lvl > 0 && <span>{lvl === MAX_BUILD_LEVEL ? "🏨" : "🏠".repeat(lvl)}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </li>
+    );
+  };
+
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <Board g={g} shown={anim.shown} rolling={anim.rolling} onSelect={setSelected}>
-        <TurnPanel g={g} me={me} busy={anim.busy} send={send} onLeave={onLeave} />
-      </Board>
+      <div ref={scroller} className="min-w-0 overflow-x-auto rounded-2xl">
+        <Board g={g} shown={anim.shown} rolling={anim.rolling} onSelect={setSelected}>
+          <TurnPanel g={g} me={me} busy={anim.busy} send={send} onLeave={onLeave} />
+        </Board>
+      </div>
 
       <aside className="space-y-4">
         {g.settings.loans && !me.bankrupt && <BankCard g={g} me={me} canAct={canBorrow} send={send} />}
         <section className={card}>
-          <h3 className="mb-2 font-bold">Players</h3>
-          <ul className="space-y-3">
-            {g.players.map((p) => {
-              const owned = BOARD.flatMap((s, i) => (g.owners[i] === p.id && s.kind === "country" ? [{ s, i }] : []));
-              return (
-                <li key={p.id} className={p.bankrupt ? "opacity-40" : ""}>
-                  <div className={`flex items-center gap-2 rounded-lg px-2 py-1 ${p.id === cur.id && g.phase !== "over" ? "bg-indigo-500/20 ring-1 ring-indigo-400" : ""}`}>
-                    <span className="h-4 w-4 rounded-full" style={{ background: p.color }} />
-                    <span className="flex-1 truncate font-medium">
-                      {p.name}{p.id === me.id && " (you)"}{p.isBot && " 🤖"}{p.jailed && " 🔒"}{g.loans[p.id] && <span className="ml-1 text-xs text-rose-300" title="Owes the bank">🏦 -${g.loans[p.id].debt}</span>}
-                    </span>
-                    <span className="font-mono font-semibold">{p.bankrupt ? "OUT" : `$${p.money}`}</span>
-                  </div>
-                  {owned.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1 pl-6 text-xs">
-                      {owned.map(({ s, i }) => {
-                        if (s.kind !== "country") return null;
-                        const lvl = level(g, i);
-                        const full = groupSquares(s.group).every((x) => g.owners[x] === p.id);
-                        return (
-                          <button
-                            key={i}
-                            onClick={() => setSelected(i)}
-                            className={`flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 hover:bg-white/20 ${full ? "ring-1 ring-emerald-400" : ""}`}
-                            title={full ? "You own the whole set" : s.name}
-                          >
-                            <Flag iso={s.iso} name={s.name} className="w-4" />
-                            {s.name}
-                            {lvl > 0 && <span>{lvl === MAX_BUILD_LEVEL ? "🏨" : "🏠".repeat(lvl)}</span>}
-                          </button>
-                        );
-                      })}
+          <h3 className="mb-2 font-bold">{g.settings.teamMode ? "Teams" : "Players"}</h3>
+          {g.settings.teamMode ? (
+            <div className="space-y-4">
+              {TEAMS.slice(0, g.settings.teamCount).map((team, ti) => {
+                const members = g.players.filter((p) => p.team === ti);
+                if (members.length === 0) return null;
+                const cash = members.reduce((s, p) => s + (p.bankrupt ? 0 : p.money), 0);
+                const lands = Object.values(g.owners).filter((o) => members.some((m) => m.id === o)).length;
+                const out = members.every((p) => p.bankrupt);
+                return (
+                  <div key={ti} className={`rounded-xl p-2 ${out ? "opacity-40" : ""}`} style={{ boxShadow: `inset 0 0 0 2px ${team.color}` }}>
+                    <div className="mb-1 flex items-center justify-between px-1 text-sm font-bold" style={{ color: team.color }}>
+                      <span>{team.icon} Team {team.name}{g.winnerTeam === ti && " 🏆"}</span>
+                      <span className="font-mono text-xs text-slate-300">${cash} · {lands} countries</span>
                     </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+                    <ul className="space-y-3">{members.map((p) => playerRow(p))}</ul>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <ul className="space-y-3">{g.players.map((p) => playerRow(p))}</ul>
+          )}
         </section>
 
         <section className={card}>

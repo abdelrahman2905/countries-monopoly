@@ -2,7 +2,12 @@ import { SETTING_OPTIONS, type Settings } from "../../shared/game";
 
 type Props = { settings: Settings; editable: boolean; onChange: (patch: Partial<Settings>) => void };
 
-const toggles: { key: "buildings" | "inflation" | "doublesRoll" | "freeParkingPot" | "auctions" | "loans"; label: string; hint: string }[] = [
+const toggles: {
+  key: "buildings" | "inflation" | "doublesRoll" | "freeParkingPot" | "auctions" | "loans" | "teamMode";
+  label: string;
+  hint: string;
+}[] = [
+  { key: "teamMode", label: "Team mode (big map)", hint: "Up to 4 teams on a double-size map with 64 countries. Teammates pay no rent to each other and win together" },
   { key: "auctions", label: "Auctions", hint: "On a free country: buy it, skip it, or auction it (bids +$2 / +$5 / +$50)" },
   { key: "loans", label: "Bank loans", hint: "Borrow from the bank, repay within 5 rounds or sell a country" },
   { key: "buildings", label: "Houses & hotels", hint: "Build on a full color set to raise the rent" },
@@ -37,6 +42,7 @@ export default function SettingsPanel({ settings, editable, onChange }: Props) {
       {select("turnTimer", "Turn timer", (n) => (n ? `${n} seconds` : "off"))}
       {select("maxPlayers", "Max players", (n) => `${n} players`)}
       {settings.loans && select("loanInterest", "Loan interest", (n) => `${n}%`)}
+      {settings.teamMode && select("teamCount", "Number of teams", (n) => `${n} teams`)}
       <div className="space-y-2 border-t border-white/10 pt-3">
         {toggles.map((t) => (
           <label key={t.key} className={`flex items-start gap-3 ${editable ? "cursor-pointer" : "opacity-70"}`}>

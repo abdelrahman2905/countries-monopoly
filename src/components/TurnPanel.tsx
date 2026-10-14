@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  BID_INCREMENTS, BOARD, bankBuyPrice, currentPlayer, rentMultiplier, salaryFor, type GameState, type Player,
+  BID_INCREMENTS, TEAMS, boardOf, bankBuyPrice, currentPlayer, rentMultiplier, salaryFor, type GameState, type Player,
 } from "../../shared/game";
 import type { useGame } from "../lib/useGame";
 import { Flag } from "./CountryArt";
@@ -31,7 +31,16 @@ export default function TurnPanel({ g, me, busy, send, onLeave }: Props) {
     return (
       <>
         <div className="text-4xl">🏆</div>
-        <div className="text-xl font-extrabold">{winner?.name} wins!</div>
+        {g.winnerTeam !== null ? (
+          <>
+            <div className="text-xl font-extrabold" style={{ color: TEAMS[g.winnerTeam].color }}>
+              {TEAMS[g.winnerTeam].icon} Team {TEAMS[g.winnerTeam].name} wins!
+            </div>
+            <div className="text-sm text-slate-300">{g.players.filter((p) => p.team === g.winnerTeam).map((p) => p.name).join(" · ")}</div>
+          </>
+        ) : (
+          <div className="text-xl font-extrabold">{winner?.name} wins!</div>
+        )}
         <button onClick={onLeave} className={`${btn} bg-indigo-600`}>Back to lobby</button>
       </>
     );
@@ -39,7 +48,7 @@ export default function TurnPanel({ g, me, busy, send, onLeave }: Props) {
 
   if (g.phase === "auction" && g.auction) return <AuctionPanel g={g} me={me} send={send} />;
 
-  const buy = g.canBuy !== null ? BOARD[g.canBuy] : null;
+  const buy = g.canBuy !== null ? boardOf(g)[g.canBuy] : null;
   const mult = rentMultiplier(g);
   const loan = g.loans[me.id];
 
@@ -48,6 +57,7 @@ export default function TurnPanel({ g, me, busy, send, onLeave }: Props) {
       <div className="flex items-center gap-2 text-sm font-semibold sm:text-lg">
         <span className="h-3 w-3 rounded-full ring-2 ring-white/70" style={{ background: cur.color }} />
         {myTurn ? "Your turn!" : `${cur.name}'s turn`}
+        {g.settings.teamMode && <span title={`Team ${TEAMS[cur.team]?.name}`}>{TEAMS[cur.team]?.icon}</span>}
         {cur.isBot && " 🤖"}
         {!cur.connected && " (offline)"}
       </div>
@@ -103,7 +113,7 @@ export default function TurnPanel({ g, me, busy, send, onLeave }: Props) {
 
 function AuctionPanel({ g, me, send }: { g: GameState; me: Player; send: Send }) {
   const au = g.auction!;
-  const s = BOARD[au.square];
+  const s = boardOf(g)[au.square];
   if (s.kind !== "country") return null;
   const leader = g.players.find((p) => p.id === au.bidderId);
   const iLead = au.bidderId === me.id;
@@ -147,7 +157,7 @@ function AuctionPanel({ g, me, send }: { g: GameState; me: Player; send: Send })
 
 function SellPanel({ g, me, send }: { g: GameState; me: Player; send: Send }) {
   const loan = g.loans[me.id]!;
-  const owned = BOARD.flatMap((s, i) => (g.owners[i] === me.id && s.kind === "country" ? [{ s, i }] : []));
+  const owned = boardOf(g).flatMap((s, i) => (g.owners[i] === me.id && s.kind === "country" ? [{ s, i }] : []));
   return (
     <div className="pop flex max-w-full flex-col items-center gap-2">
       <div className="text-sm font-bold text-amber-300">🏦 Your loan is overdue!</div>

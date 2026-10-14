@@ -1,5 +1,5 @@
 import {
-  BOARD, GROUP_COLORS, MAX_BUILD_LEVEL, baseRent, buildError, groupSquares, houseCost, level, ownsGroup,
+  boardOf, groupColor, MAX_BUILD_LEVEL, baseRent, buildError, groupSquares, houseCost, level, ownsGroup,
   rentMultiplier, sellError, type GameState,
 } from "../../shared/game";
 import { Flag, Shape } from "./CountryArt";
@@ -17,7 +17,8 @@ type Props = {
 const LABELS = ["Rent", "1 house", "2 houses", "3 houses", "4 houses", "Hotel"];
 
 export default function PropertyModal({ g, index, myId, myTurn, onClose, onBuild, onSell }: Props) {
-  const s = BOARD[index];
+  const board = boardOf(g);
+  const s = board[index];
   if (s.kind !== "country") return null;
   const owner = g.players.find((p) => p.id === g.owners[index]);
   const mono = !!owner && ownsGroup(g, owner.id, s.group);
@@ -26,7 +27,7 @@ export default function PropertyModal({ g, index, myId, myTurn, onClose, onBuild
   const mine = owner?.id === myId;
   const bErr = mine ? buildError(g, myId, index) : null;
   const sErr = mine ? sellError(g, myId, index) : null;
-  const set = groupSquares(s.group);
+  const set = groupSquares(board, s.group);
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/70 p-3 backdrop-blur-sm sm:items-center" onClick={onClose}>
@@ -45,13 +46,13 @@ export default function PropertyModal({ g, index, myId, myTurn, onClose, onBuild
           </div>
           <button onClick={onClose} className="absolute right-3 top-3 rounded-full bg-black/30 px-2 py-0.5 text-white hover:bg-black/50" aria-label="Close">✕</button>
         </div>
-        <div className="h-1.5" style={{ background: GROUP_COLORS[s.group] }} />
+        <div className="h-1.5" style={{ background: groupColor(board, s.group) }} />
 
         <div className="space-y-4 p-5">
           <div className="flex items-center gap-2 text-sm text-slate-300">
             <span>Color set:</span>
             {set.map((i) => {
-              const m = BOARD[i];
+              const m = board[i];
               return m.kind === "country" ? (
                 <span key={i} title={m.name} className="inline-flex items-center gap-1">
                   <Flag iso={m.iso} name={m.name} className="w-6" />
@@ -72,7 +73,7 @@ export default function PropertyModal({ g, index, myId, myTurn, onClose, onBuild
                       {label}{l === 0 && " (full set ×2)"}
                     </td>
                     <td className="px-2 py-1 text-right font-mono">
-                      ${Math.round(baseRent(index, l, l === 0 && mono) * mult)}
+                      ${Math.round(baseRent(board, index, l, l === 0 && mono) * mult)}
                     </td>
                   </tr>
                 );
@@ -80,7 +81,7 @@ export default function PropertyModal({ g, index, myId, myTurn, onClose, onBuild
             </tbody>
           </table>
           {mult > 1 && <p className="text-xs text-rose-300">Includes rent inflation ×{mult.toFixed(2)}</p>}
-          {g.settings.buildings && <p className="text-xs text-slate-400">Each house or hotel here costs ${houseCost(index)}. Build only when you own the whole color set.</p>}
+          {g.settings.buildings && <p className="text-xs text-slate-400">Each house or hotel here costs ${houseCost(board, index)}. Build only when you own the whole color set.</p>}
 
           <div className="rounded-lg bg-white/5 px-3 py-2 text-sm">
             {owner ? (
@@ -98,14 +99,14 @@ export default function PropertyModal({ g, index, myId, myTurn, onClose, onBuild
                   onClick={onBuild}
                   className="flex-1 rounded-lg bg-emerald-600 px-3 py-2 font-semibold hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  🏠 Build ${houseCost(index)}
+                  🏠 Build ${houseCost(board, index)}
                 </button>
                 <button
                   disabled={!myTurn || !!sErr}
                   onClick={onSell}
                   className="rounded-lg bg-slate-700 px-3 py-2 font-semibold hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Sell +${Math.floor(houseCost(index) / 2)}
+                  Sell +${Math.floor(houseCost(board, index) / 2)}
                 </button>
               </div>
               <p className="text-xs text-amber-300">{!myTurn ? "You can build on your own turn." : bErr}</p>

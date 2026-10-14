@@ -1,7 +1,6 @@
 // Pure, server-authoritative game engine. Used by the PartyKit server;
 // the client only imports the types and the BOARD data for rendering.
 
-export const JAIL_INDEX = 10;
 export const MIN_PLAYERS = 2;
 export const MAX_BUILD_LEVEL = 5; // 1-4 houses, 5 = hotel
 
@@ -20,12 +19,14 @@ export type Settings = {
   auctions: boolean; // a player who lands on a free country may auction it instead of buying
   loans: boolean; // players may borrow from the bank and must repay within LOAN_ROUNDS rounds
   loanInterest: number; // percent added to the borrowed amount
+  teamMode: boolean; // teams (up to 4) on a double-size map with twice the countries
+  teamCount: number; // number of teams in team mode
 };
 
 export const DEFAULT_SETTINGS: Settings = {
   startMoney: 1500, goSalary: 300, bonusAfterRounds: 5, bonusSalary: 1000, turnTimer: 90, maxPlayers: 6,
   buildings: true, inflation: true, doublesRoll: true, freeParkingPot: false,
-  auctions: true, loans: false, loanInterest: 10,
+  auctions: true, loans: false, loanInterest: 10, teamMode: false, teamCount: 2,
 };
 
 export const LOAN_ROUNDS = 5;
@@ -40,8 +41,9 @@ export const SETTING_OPTIONS = {
   bonusAfterRounds: [0, 3, 5, 8, 10],
   bonusSalary: [500, 1000, 1500, 2000],
   turnTimer: [0, 30, 60, 90, 120],
-  maxPlayers: [2, 3, 4, 5, 6],
+  maxPlayers: [2, 3, 4, 5, 6, 8],
   loanInterest: [0, 10, 20],
+  teamCount: [2, 3, 4],
 } as const;
 
 /** What a player collects for passing Go right now. */
@@ -110,11 +112,76 @@ export const BOARD: Square[] = [
   c("ru", "Russia", 480, 11, "#0039a6", "#d52b1e"),
 ];
 
-export const groupSquares = (group: number): number[] =>
-  BOARD.flatMap((s, i) => (s.kind === "country" && s.group === group ? [i] : []));
+// ---------- Big board for team mode: 80 squares, 64 countries in 24 color sets ----------
+// Extra countries beyond the classic 32: [name, flag color 1, flag color 2]
+const EXTRA: Record<string, [string, string, string]> = {
+  et: ["Ethiopia", "#078930", "#fcdd09"], tz: ["Tanzania", "#1eb53a", "#00a3dd"], za: ["South Africa", "#007a4d", "#ffb612"],
+  gh: ["Ghana", "#006b3f", "#fcd116"], ao: ["Angola", "#cc092f", "#000000"], ly: ["Libya", "#239e46", "#e70013"],
+  sd: ["Sudan", "#d21034", "#007229"], zm: ["Zambia", "#198a00", "#de2010"], mz: ["Mozambique", "#007168", "#fce100"],
+  mm: ["Myanmar", "#fecb00", "#34b233"], kz: ["Kazakhstan", "#00afca", "#fec50c"], mn: ["Mongolia", "#c4272f", "#015197"],
+  af: ["Afghanistan", "#d32011", "#009a00"], my: ["Malaysia", "#cc0001", "#010066"], kr: ["South Korea", "#cd2e3a", "#0047a0"],
+  np: ["Nepal", "#dc143c", "#003893"], uz: ["Uzbekistan", "#1eb53a", "#0099b5"], iq: ["Iraq", "#ce1126", "#007a3d"],
+  ua: ["Ukraine", "#0057b7", "#ffd700"], se: ["Sweden", "#006aa7", "#fecc00"], no: ["Norway", "#ba0c2f", "#00205b"],
+  fi: ["Finland", "#003580", "#ffffff"], pt: ["Portugal", "#006600", "#ff0000"], ro: ["Romania", "#002b7f", "#fcd116"],
+  ie: ["Ireland", "#169b62", "#ff883e"], pe: ["Peru", "#d91023", "#ffffff"], ve: ["Venezuela", "#fcd116", "#cf142b"],
+  bo: ["Bolivia", "#d52b1e", "#007934"], cu: ["Cuba", "#002a8f", "#cf142b"], ec: ["Ecuador", "#ffd100", "#034ea2"],
+  nz: ["New Zealand", "#00247d", "#cc142b"], pg: ["Papua New Guinea", "#ce1126", "#fcd116"],
+};
 
-export const houseCost = (index: number): number => {
-  const s = BOARD[index];
+// Each side: six color sets of 2, 3, 3, 3, 3, 2 countries, cheapest side first
+const BIG_SIDES: string[][][] = [
+  [["et", "ng"], ["ke", "tz", "mz"], ["bd", "pk", "mm"], ["eg", "ma", "dz"], ["gh", "ao", "zm"], ["np", "af"]],
+  [["vn", "th"], ["id", "my", "mn"], ["in", "ir", "iq"], ["sa", "tr", "ly"], ["sd", "za", "kz"], ["uz", "gr"]],
+  [["pl", "ua"], ["ro", "pt", "ie"], ["mx", "co", "pe"], ["ve", "bo", "ec"], ["ar", "cl", "cu"], ["br", "nz"]],
+  [["pg", "kr"], ["es", "fi", "no"], ["se", "au", "ca"], ["de", "fr", "it"], ["gb", "jp", "ru"], ["cn", "us"]],
+];
+
+function buildBigBoard(): Square[] {
+  const known = new Map<string, { name: string; colors: [string, string] }>();
+  for (const s of BOARD) if (s.kind === "country") known.set(s.iso, { name: s.name, colors: s.colors });
+  for (const [iso, [name, c1, c2]] of Object.entries(EXTRA)) known.set(iso, { name, colors: [c1, c2] });
+
+  const corners: Square[] = [
+    { kind: "jail", name: "Jail", icon: "🔒" },
+    { kind: "parking", name: "Free Parking", icon: "🅿️" },
+    { kind: "gotojail", name: "Go To Jail", icon: "🚔" },
+  ];
+  const out: Square[] = [{ kind: "go", name: "Go", icon: "🏁" }];
+  let k = 0;
+  let group = 0;
+  BIG_SIDES.forEach((side, s) => {
+    side.forEach((isos, gi) => {
+      for (const iso of isos) {
+        const info = known.get(iso);
+        if (!info) throw new Error(`missing country ${iso}`);
+        out.push(c(iso, info.name, 10 * Math.round((50 + 11 * k++) / 10), group, info.colors[0], info.colors[1]));
+      }
+      group++;
+      if (gi === 0 || gi === 2 || gi === 4) out.push(chance());
+    });
+    if (s < 3) out.push(corners[s]);
+  });
+  return out;
+}
+
+export const BIG_BOARD: Square[] = buildBigBoard();
+
+/** The board this game is played on. */
+export const boardOf = (g: { settings: Pick<Settings, "teamMode"> }): Square[] => (g.settings.teamMode ? BIG_BOARD : BOARD);
+const B = boardOf;
+export const jailIndex = (board: Square[]): number => board.findIndex((s) => s.kind === "jail");
+/** Side length of the square board in tiles (10 for the classic board, 20 for the big one). */
+export const sideLength = (board: Square[]): number => board.length / 4;
+
+/** Color of a color set (the big board has 24 sets, so its colors are generated). */
+export const groupColor = (board: Square[], group: number): string =>
+  board === BIG_BOARD ? `hsl(${(group * 47) % 360} ${60 + (group % 3) * 10}% ${42 + (group % 2) * 10}%)` : GROUP_COLORS[group];
+
+export const groupSquares = (board: Square[], group: number): number[] =>
+  board.flatMap((s, i) => (s.kind === "country" && s.group === group ? [i] : []));
+
+export const houseCost = (board: Square[], index: number): number => {
+  const s = board[index];
   return s.kind === "country" ? Math.max(10, Math.round(s.price / 20) * 10) : 0;
 };
 
@@ -138,7 +205,17 @@ export type Player = {
   bankrupt: boolean;
   connected: boolean;
   isBot: boolean;
+  team: number; // team index (only meaningful in team mode)
 };
+
+// Teams in team mode (up to 4)
+export const TEAMS = [
+  { name: "Red", color: "#ef4444", icon: "🔴" },
+  { name: "Blue", color: "#3b82f6", icon: "🔵" },
+  { name: "Green", color: "#22c55e", icon: "🟢" },
+  { name: "Gold", color: "#eab308", icon: "🟡" },
+];
+export const GIVE_AMOUNTS = [50, 100, 500] as const;
 
 // "auction": everyone bids on a free country; "sell": a player with an overdue loan must sell a country to the bank
 export type Phase = "lobby" | "roll" | "action" | "auction" | "sell" | "over";
@@ -164,13 +241,15 @@ export type GameState = {
   canBuy: number | null; // square index offered for purchase
   extraRoll: boolean; // rolled doubles, rolls again after this action
   winnerId: string | null;
+  winnerTeam: number | null; // team mode: the winning team
   turnDeadline: number | null; // epoch ms; set by the server when a turn timer is on
   log: string[];
 };
 
 export type Action =
   | { type: "JOIN"; name: string }
-  | { type: "SET_PROFILE"; name?: string; color?: string }
+  | { type: "SET_PROFILE"; name?: string; color?: string; team?: number }
+  | { type: "GIVE"; to: string; amount: number }
   | { type: "SET_SETTINGS"; settings: Partial<Settings> }
   | { type: "ADD_BOT" }
   | { type: "START" }
@@ -189,8 +268,21 @@ export type Rng = () => number;
 
 export const newGame = (code: string): GameState => ({
   code, phase: "lobby", settings: { ...DEFAULT_SETTINGS }, hostId: null, players: [], owners: {}, houses: {},
-  pot: 0, turn: 0, round: 0, rollCount: 0, loans: {}, auction: null, dice: null, canBuy: null, extraRoll: false, winnerId: null, turnDeadline: null, log: [],
+  pot: 0, turn: 0, round: 0, rollCount: 0, loans: {}, auction: null, dice: null, canBuy: null, extraRoll: false, winnerId: null, winnerTeam: null, turnDeadline: null, log: [],
 });
+
+export const teamMembers = (g: GameState, team: number) => g.players.filter((p) => p.team === team);
+/** True when `a` and `b` are the same player, or teammates in team mode. */
+export const sameSide = (g: GameState, a: string, b: string): boolean => {
+  if (a === b) return true;
+  if (!g.settings.teamMode) return false;
+  const pa = g.players.find((p) => p.id === a), pb = g.players.find((p) => p.id === b);
+  return !!pa && !!pb && pa.team === pb.team;
+};
+const smallestTeam = (g: GameState): number => {
+  const counts = Array.from({ length: g.settings.teamCount }, (_, t) => teamMembers(g, t).length);
+  return counts.indexOf(Math.min(...counts));
+};
 
 const say = (g: GameState, msg: string) => {
   g.log.push(msg);
@@ -201,7 +293,10 @@ export const currentPlayer = (g: GameState) => g.players[g.turn];
 const byId = (g: GameState, id: string) => g.players.find((p) => p.id === id);
 
 export const ownsGroup = (g: GameState, playerId: string, group: number) =>
-  groupSquares(group).every((i) => g.owners[i] === playerId);
+  groupSquares(B(g), group).every((i) => {
+    const o = g.owners[i];
+    return !!o && sameSide(g, o, playerId); // in team mode a set owned by teammates together counts
+  });
 
 export const level = (g: GameState, i: number) => g.houses[i] ?? 0;
 
@@ -211,42 +306,42 @@ export const rentMultiplier = (g: GameState) =>
   g.settings.inflation ? 1.15 ** Math.floor(g.round / INFLATION_EVERY) : 1;
 
 /** Rent for a given build level (ignores inflation), used by the UI rent table. */
-export function baseRent(index: number, lvl: number, monopoly: boolean): number {
-  const s = BOARD[index];
+export function baseRent(board: Square[], index: number, lvl: number, monopoly: boolean): number {
+  const s = board[index];
   if (s.kind !== "country") return 0;
   return lvl === 0 ? s.rent * (monopoly ? 2 : 1) : s.rent * RENT_BY_LEVEL[lvl];
 }
 
 export function rentFor(g: GameState, index: number): number {
-  const s = BOARD[index];
+  const s = B(g)[index];
   const owner = g.owners[index];
   if (s.kind !== "country" || !owner) return 0;
   const mono = ownsGroup(g, owner, s.group);
-  return Math.round(baseRent(index, mono ? level(g, index) : 0, mono) * rentMultiplier(g));
+  return Math.round(baseRent(B(g), index, mono ? level(g, index) : 0, mono) * rentMultiplier(g));
 }
 
 /** Why `playerId` can't build on `index` right now (null = they can). */
 export function buildError(g: GameState, playerId: string, index: number): string | null {
-  const s = BOARD[index];
+  const s = B(g)[index];
   if (!g.settings.buildings) return "Building is turned off in this room.";
   if (s?.kind !== "country") return "You can only build on countries.";
   if (g.owners[index] !== playerId) return "You don't own this country.";
   if (!ownsGroup(g, playerId, s.group)) return "You need every country in this color set first.";
   const lvl = level(g, index);
   if (lvl >= MAX_BUILD_LEVEL) return "Already has a hotel.";
-  const min = Math.min(...groupSquares(s.group).map((i) => level(g, i)));
+  const min = Math.min(...groupSquares(B(g), s.group).map((i) => level(g, i)));
   if (lvl > min) return "Build evenly: upgrade your other countries in this set first.";
   const me = byId(g, playerId)!;
-  if (me.money < houseCost(index)) return `You need $${houseCost(index)}.`;
+  if (me.money < houseCost(B(g), index)) return `You need $${houseCost(B(g), index)}.`;
   return null;
 }
 
 export function sellError(g: GameState, playerId: string, index: number): string | null {
-  const s = BOARD[index];
+  const s = B(g)[index];
   if (s?.kind !== "country" || g.owners[index] !== playerId) return "You don't own this country.";
   const lvl = level(g, index);
   if (lvl < 1) return "Nothing to sell here.";
-  const max = Math.max(...groupSquares(s.group).map((i) => level(g, i)));
+  const max = Math.max(...groupSquares(B(g), s.group).map((i) => level(g, i)));
   if (lvl < max) return "Sell evenly: downgrade the highest country in this set first.";
   return null;
 }
@@ -272,7 +367,19 @@ function pay(g: GameState, from: Player, to: Player | null, amount: number) {
 
 function checkWinner(g: GameState) {
   const left = alive(g);
-  if (g.phase !== "lobby" && g.phase !== "over" && left.length === 1) {
+  if (g.phase === "lobby" || g.phase === "over") return;
+  if (g.settings.teamMode) {
+    const teams = new Set(left.map((p) => p.team));
+    if (teams.size === 1 && left.length > 0) {
+      const t = left[0].team;
+      g.phase = "over";
+      g.winnerTeam = t;
+      g.winnerId = left[0].id;
+      g.canBuy = null;
+      g.auction = null;
+      say(g, `🏆 Team ${TEAMS[t].name} wins the game!`);
+    }
+  } else if (left.length === 1) {
     g.phase = "over";
     g.winnerId = left[0].id;
     g.canBuy = null;
@@ -290,7 +397,7 @@ function moveTo(g: GameState, p: Player, target: number, collectGo: boolean) {
 }
 
 function sendToJail(g: GameState, p: Player) {
-  p.pos = JAIL_INDEX;
+  p.pos = jailIndex(B(g));
   p.jailed = true;
   g.extraRoll = false;
 }
@@ -317,8 +424,8 @@ const gain = (amount: number, text: string): Card => (g, p) => {
   p.money += amount;
 };
 const collectFromEach = (amount: number, text: string): Card => (g, p) => {
-  say(g, `❓ ${p.name}: ${text} Every player pays them $${amount}.`);
-  for (const o of alive(g)) if (o.id !== p.id) pay(g, o, p, amount);
+  say(g, `❓ ${p.name}: ${text} Every opponent pays them $${amount}.`);
+  for (const o of alive(g)) if (!sameSide(g, o.id, p.id)) pay(g, o, p, amount);
 };
 const lose = (amount: number, text: string): Card => (g, p) => {
   say(g, `❓ ${p.name}: ${text} Pay $${amount}.`);
@@ -340,7 +447,7 @@ const CHANCE_DECK: Card[] = [
   },
   (g, p, rng) => {
     say(g, `❓ ${p.name}: Go back 3 squares.`);
-    p.pos = (p.pos + BOARD.length - 3) % BOARD.length;
+    p.pos = (p.pos + B(g).length - 3) % B(g).length;
     landOn(g, p, rng, false);
   },
   (g, p) => {
@@ -368,7 +475,7 @@ function drawChance(g: GameState, p: Player, rng: Rng) {
 }
 
 function landOn(g: GameState, p: Player, rng: Rng, allowChance = true) {
-  const s = BOARD[p.pos];
+  const s = B(g)[p.pos];
   switch (s.kind) {
     case "gotojail":
       say(g, `🚔 ${p.name} goes to Jail.`);
@@ -389,6 +496,8 @@ function landOn(g: GameState, p: Player, rng: Rng, allowChance = true) {
       if (!ownerId) {
         if (p.money >= s.price) g.canBuy = p.pos;
         else say(g, `${p.name} landed on ${s.name} but can't afford $${s.price}.`);
+      } else if (ownerId !== p.id && sameSide(g, ownerId, p.id)) {
+        say(g, `🤝 ${p.name} stays free on ${s.name}: it belongs to teammate ${byId(g, ownerId)!.name}.`);
       } else if (ownerId !== p.id) {
         const owner = byId(g, ownerId)!;
         const rent = rentFor(g, p.pos);
@@ -453,15 +562,15 @@ function collectDebt(g: GameState, p: Player): boolean {
 
 /** Value the bank pays when a player sells a country to it: its price plus half the building costs. */
 export const bankBuyPrice = (g: GameState, index: number): number => {
-  const s = BOARD[index];
-  return s.kind === "country" ? s.price + Math.floor(houseCost(index) / 2) * level(g, index) : 0;
+  const s = B(g)[index];
+  return s.kind === "country" ? s.price + Math.floor(houseCost(B(g), index) / 2) * level(g, index) : 0;
 };
 
 /** Ends the auction: the highest bidder pays and gets the country (no bids = it stays unowned). */
 export function finishAuction(g: GameState) {
   const a = g.auction;
   if (!a) return;
-  const s = BOARD[a.square];
+  const s = B(g)[a.square];
   const winner = a.bidderId ? byId(g, a.bidderId) : undefined;
   if (winner && s.kind === "country" && winner.money >= a.bid) {
     winner.money -= a.bid;
@@ -477,7 +586,7 @@ export function finishAuction(g: GameState) {
 /** Which bot (if any) should raise the auction right now, and by how much. */
 export function botAuctionBid(g: GameState, rng: Rng): { playerId: string; inc: number } | null {
   const a = g.auction;
-  const s = a ? BOARD[a.square] : null;
+  const s = a ? B(g)[a.square] : null;
   if (!a || s?.kind !== "country") return null;
   const limit = Math.floor(s.price * 0.85); // bots never bid more than 85% of the price
   const candidates = g.players.filter((p) => p.isBot && !p.bankrupt && p.id !== a.bidderId);
@@ -511,7 +620,7 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
     const name = a.name.trim().slice(0, 16) || "Player";
     g.players.push({
       id: playerId, name, color: freeColor(g), money: g.settings.startMoney, pos: 0,
-      jailed: false, bankrupt: false, connected: true, isBot: false,
+      jailed: false, bankrupt: false, connected: true, isBot: false, team: smallestTeam(g),
     });
     g.hostId ??= playerId;
     say(g, `${name} joined.`);
@@ -534,6 +643,25 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
         if (g.players.some((p) => p.id !== me.id && p.color === a.color)) return "That color is taken.";
         me.color = a.color;
       }
+      if (a.team !== undefined) {
+        if (!g.settings.teamMode) return "Teams are not enabled in this room.";
+        if (!Number.isInteger(a.team) || a.team < 0 || a.team >= g.settings.teamCount) return "Unknown team.";
+        me.team = a.team;
+      }
+      return null;
+    }
+    case "GIVE": {
+      // teammates can send each other money at any time during the game
+      if (!g.settings.teamMode) return "Teams are not enabled in this room.";
+      if (g.phase === "lobby" || g.phase === "over") return "The game is not running.";
+      const to = byId(g, a.to);
+      if (!to || to.id === me.id || to.team !== me.team || to.bankrupt) return "You can only give money to a teammate.";
+      if (me.bankrupt) return "You are out of the game.";
+      if (!(GIVE_AMOUNTS as readonly number[]).includes(a.amount)) return "Invalid amount.";
+      if (me.money < a.amount) return "Not enough money.";
+      me.money -= a.amount;
+      to.money += a.amount;
+      say(g, `🤝 ${me.name} gave $${a.amount} to teammate ${to.name}.`);
       return null;
     }
     case "SET_SETTINGS": {
@@ -543,6 +671,8 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       if (typeof next === "string") return next;
       if (next.maxPlayers < g.players.length) return "Too many players already joined for that limit.";
       g.settings = next;
+      // fewer teams than before: move players from removed teams to the smallest remaining ones
+      for (const p of g.players) if (p.team >= next.teamCount) p.team = smallestTeam(g);
       return null;
     }
     case "ADD_BOT": {
@@ -553,6 +683,7 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       g.players.push({
         id: `bot-${n}-${Math.floor(rng() * 1e6)}`, name: `Bot ${n}`, color: freeColor(g),
         money: g.settings.startMoney, pos: 0, jailed: false, bankrupt: false, connected: true, isBot: true,
+        team: smallestTeam(g),
       });
       return null;
     }
@@ -560,6 +691,14 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       if (g.phase !== "lobby") return "Game already started.";
       if (g.hostId !== playerId) return "Only the host can start.";
       if (g.players.length < MIN_PLAYERS) return "Need at least 2 players (add a bot!).";
+      if (g.settings.teamMode) {
+        if (new Set(g.players.map((p) => p.team)).size < 2) return "Team mode needs players on at least 2 teams.";
+        // turns alternate between teams: team 1 player, team 2 player, ..., then the next player of each team
+        const byTeam = Array.from({ length: g.settings.teamCount }, (_, t) => teamMembers(g, t));
+        const order: Player[] = [];
+        for (let i = 0; order.length < g.players.length; i++) for (const team of byTeam) if (team[i]) order.push(team[i]);
+        g.players = order;
+      }
       for (const p of g.players) p.money = g.settings.startMoney;
       g.phase = "roll";
       g.turn = 0;
@@ -575,7 +714,7 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       say(g, `${me.name} rolled ${d1} + ${d2}${doubles ? " (doubles!)" : ""}.`);
       g.extraRoll = doubles;
       const raw = me.pos + d1 + d2;
-      moveTo(g, me, raw % BOARD.length, raw >= BOARD.length);
+      moveTo(g, me, raw % B(g).length, raw >= B(g).length);
       landOn(g, me, rng);
       g.phase = "action";
       checkWinner(g);
@@ -584,7 +723,7 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
     case "BUY": {
       if (g.phase !== "action" || g.canBuy === null) return "Nothing to buy.";
       if (!myTurn) return "Not your turn.";
-      const s = BOARD[g.canBuy];
+      const s = B(g)[g.canBuy];
       if (s.kind !== "country" || me.money < s.price) return "Can't afford that.";
       me.money -= s.price;
       g.owners[g.canBuy] = me.id;
@@ -596,7 +735,7 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       if (!g.settings.auctions) return "Auctions are turned off in this room.";
       if (g.phase !== "action" || g.canBuy === null) return "Nothing to auction.";
       if (!myTurn) return "Not your turn.";
-      const s = BOARD[g.canBuy];
+      const s = B(g)[g.canBuy];
       if (s.kind !== "country") return "Nothing to auction.";
       g.auction = { square: g.canBuy, bid: Math.max(10, Math.round(s.price / 10)), bidderId: null, deadline: null };
       g.canBuy = null;
@@ -642,7 +781,7 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       const loan = g.loans[me.id];
       if (g.phase !== "sell" || !loan || !myTurn) return "You don't have to sell anything.";
       const idx = Number(a.square);
-      const s = BOARD[idx];
+      const s = B(g)[idx];
       if (s?.kind !== "country" || g.owners[idx] !== me.id) return "You don't own that country.";
       const value = bankBuyPrice(g, idx);
       delete g.owners[idx];
@@ -663,9 +802,9 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       const idx = Number(a.square);
       const err = buildError(g, playerId, idx);
       if (err) return err;
-      me.money -= houseCost(idx);
+      me.money -= houseCost(B(g), idx);
       g.houses[idx] = level(g, idx) + 1;
-      say(g, `🏗️ ${me.name} built a ${g.houses[idx] === MAX_BUILD_LEVEL ? "hotel" : "house"} in ${BOARD[idx].name}.`);
+      say(g, `🏗️ ${me.name} built a ${g.houses[idx] === MAX_BUILD_LEVEL ? "hotel" : "house"} in ${B(g)[idx].name}.`);
       return null;
     }
     case "SELL": {
@@ -675,8 +814,8 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       if (err) return err;
       g.houses[idx] = level(g, idx) - 1;
       if (g.houses[idx] === 0) delete g.houses[idx];
-      me.money += Math.floor(houseCost(idx) / 2);
-      say(g, `${me.name} sold a building in ${BOARD[idx].name}.`);
+      me.money += Math.floor(houseCost(B(g), idx) / 2);
+      say(g, `${me.name} sold a building in ${B(g)[idx].name}.`);
       return null;
     }
     case "END_TURN": {
@@ -699,7 +838,7 @@ export function botAction(g: GameState, force = false): Action | null {
   if (g.phase === "sell") {
     if (loan && p.money >= loan.debt) return { type: "REPAY" };
     // sell the cheapest country that covers the whole debt, otherwise the most valuable one
-    const owned = BOARD.flatMap((s, i) => (g.owners[i] === p.id ? [i] : []));
+    const owned = B(g).flatMap((s, i) => (g.owners[i] === p.id ? [i] : []));
     const covering = owned.filter((i) => loan && bankBuyPrice(g, i) >= loan.debt).sort((x, y) => bankBuyPrice(g, x) - bankBuyPrice(g, y));
     const pick = covering[0] ?? owned.sort((x, y) => bankBuyPrice(g, y) - bankBuyPrice(g, x))[0];
     return pick === undefined ? null : { type: "SELL_COUNTRY", square: pick };
@@ -709,12 +848,12 @@ export function botAction(g: GameState, force = false): Action | null {
     if (loan && p.money >= loan.debt + 400) return { type: "REPAY" };
     if (g.settings.loans && !loan && p.money < 150 && g.canBuy === null && g.round < 40) return { type: "TAKE_LOAN", amount: 500 };
     if (g.canBuy !== null) {
-      const s = BOARD[g.canBuy];
+      const s = B(g)[g.canBuy];
       if (s.kind === "country" && p.money - s.price >= 150) return { type: "BUY" };
       if (g.settings.auctions && g.canBuy % 2 === 0) return { type: "AUCTION" }; // bots sometimes put it up for auction
     }
-    for (let i = 0; i < BOARD.length; i++) {
-      if (g.owners[i] === p.id && houseCost(i) > 0 && p.money - houseCost(i) >= 250 && !buildError(g, p.id, i)) {
+    for (let i = 0; i < B(g).length; i++) {
+      if (g.owners[i] === p.id && houseCost(B(g), i) > 0 && p.money - houseCost(B(g), i) >= 250 && !buildError(g, p.id, i)) {
         return { type: "BUILD", square: i };
       }
     }

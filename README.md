@@ -10,6 +10,11 @@ Buy countries, collect rent, and bankrupt your opponents. The last player standi
 ## How it plays
 
 - Create a room, share the 5-character code (or the link), and 2–6 players join. The host can add 🤖 bots.
+- **Team mode** (host setting, 2 to 4 teams): switches to a **double-size map, 80 squares with 64 countries** in 24 color
+  sets. Players pick a team in the lobby and turns alternate between teams. Teammates keep their own money, but they
+  pay no rent on each other's countries, a color set owned by teammates together counts as complete (rent doubles and
+  you can build), Chance cards that take money from "every opponent" skip teammates, and teammates can give each other
+  $50, $100 or $500 at any time. The last team with players still in the game wins together.
 - **Animations:** dice tumble when rolled, pieces hop square by square, and a country's owner bar lights up in the
   buyer's color when it is bought.
 - **Landing on a free country:** buy it, skip it, or put it up for **auction**. Everyone can bid at any time with

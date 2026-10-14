@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
-import { PLAYER_COLORS, type Player } from "../../shared/game";
+import { PLAYER_COLORS, TEAMS, type Player } from "../../shared/game";
 
 type Props = {
   me: Player;
   taken: Set<string>;
-  onChange: (patch: { name?: string; color?: string }) => void;
+  teams: number; // number of teams to choose from (0 = no teams in this room)
+  onChange: (patch: { name?: string; color?: string; team?: number }) => void;
 };
 
-/** Lets each player choose their own name and piece color in the lobby. */
-export default function ProfilePicker({ me, taken, onChange }: Props) {
+/** Lets each player choose their own name, piece color and (in team mode) team in the lobby. */
+export default function ProfilePicker({ me, taken, teams, onChange }: Props) {
   const [name, setName] = useState(me.name);
   useEffect(() => setName(me.name), [me.name]);
 
@@ -55,6 +56,26 @@ export default function ProfilePicker({ me, taken, onChange }: Props) {
           })}
         </div>
       </div>
+      {teams > 0 && (
+        <div>
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Your team</span>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {TEAMS.slice(0, teams).map((t, i) => (
+              <button
+                key={t.name}
+                onClick={() => onChange({ team: i })}
+                aria-pressed={me.team === i}
+                className={`rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition ${
+                  me.team === i ? "ring-2 ring-white ring-offset-2 ring-offset-slate-900" : "opacity-60 hover:opacity-100"
+                }`}
+                style={{ background: t.color }}
+              >
+                {t.icon} {t.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

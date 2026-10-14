@@ -11,7 +11,7 @@ type Env = { Main: DurableObjectNamespace<GameServer> };
 
 const VALID_ACTIONS = new Set([
   "SET_PROFILE", "SET_SETTINGS", "ADD_BOT", "START", "ROLL", "BUY", "AUCTION", "BID", "TAKE_LOAN", "REPAY",
-  "SELL_COUNTRY", "BUILD", "SELL", "END_TURN",
+  "SELL_COUNTRY", "BUILD", "SELL", "END_TURN", "GIVE",
 ]);
 const MAX_MSG_BYTES = 2048;
 const MAX_MSGS_PER_SEC = 20;
@@ -35,6 +35,7 @@ export class GameServer extends Server<Env> {
         // games saved by an older version miss newer fields: fill them with defaults
         this.game = { ...newGame(this.name), ...saved.game, settings: { ...DEFAULT_SETTINGS, ...saved.game.settings } };
         this.tokens = new Map(saved.tokens);
+        for (const p of this.game.players) p.team ??= 0;
         for (const p of this.game.players) if (!p.isBot) p.connected = false; // they reconnect via JOIN
       }
     } catch (e) {

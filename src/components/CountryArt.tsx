@@ -3,9 +3,10 @@ import shapes from "../data/shapes.json";
 const paths = shapes as Record<string, string>;
 
 /** Real flag image (SVG files live in /public/flags). */
-export function Flag({ iso, name, className = "" }: { iso: string; name: string; className?: string }) {
+export function Flag({ iso, name, className = "", style }: { iso: string; name: string; className?: string; style?: React.CSSProperties }) {
   return (
     <img
+      style={style}
       src={`/flags/${iso}.svg`}
       alt={`Flag of ${name}`}
       draggable={false}

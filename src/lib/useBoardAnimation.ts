@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BOARD, type GameState } from "../../shared/game";
+import { boardOf, type GameState } from "../../shared/game";
 
 export const ROLL_MS = 900; // how long the dice tumble
 const STEP_MS = 150; // time per square while a piece walks
@@ -42,7 +42,7 @@ export function useBoardAnimation(g: GameState) {
 
   // pieces: walk toward the server's position
   useEffect(() => {
-    const n = BOARD.length;
+    const n = boardOf(g).length;
     const step = (id: string) => {
       const cur = shownRef.current[id] ?? 0;
       const to = targets.current[id];

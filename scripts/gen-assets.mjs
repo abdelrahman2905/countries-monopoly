@@ -14,6 +14,13 @@ const C = {
   co: ["Colombia"], ar: ["Argentina"], cl: ["Chile", 0.5], br: ["Brazil"], ca: ["Canada"],
   au: ["Australia"], es: ["Spain", 0.5], de: ["Germany"], fr: ["France", 0.5], it: ["Italy"],
   gb: ["United Kingdom"], jp: ["Japan"], cn: ["China"], us: ["United States of America", 0.5], ru: ["Russia"],
+  // extra countries for the big team-mode map
+  et: ["Ethiopia"], tz: ["Tanzania"], za: ["South Africa"], gh: ["Ghana"], ao: ["Angola"], ly: ["Libya"],
+  sd: ["Sudan"], zm: ["Zambia"], mz: ["Mozambique"], mm: ["Myanmar"], kz: ["Kazakhstan"], mn: ["Mongolia"],
+  af: ["Afghanistan"], my: ["Malaysia"], kr: ["South Korea"], np: ["Nepal"], uz: ["Uzbekistan"], iq: ["Iraq"],
+  ua: ["Ukraine"], se: ["Sweden"], no: ["Norway", 0.3], fi: ["Finland"], pt: ["Portugal"], ro: ["Romania"],
+  ie: ["Ireland"], pe: ["Peru"], ve: ["Venezuela"], bo: ["Bolivia"], cu: ["Cuba"], ec: ["Ecuador"],
+  nz: ["New Zealand"], pg: ["Papua New Guinea"],
 };
 
 const topo = require("world-atlas/countries-110m.json");
