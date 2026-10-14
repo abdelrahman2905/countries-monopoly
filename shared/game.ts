@@ -15,7 +15,8 @@ export type Settings = {
   buildings: boolean; // houses & hotels
   inflation: boolean; // rents rise over time so games end
   doublesRoll: boolean; // doubles give another roll
-  freeParkingPot: boolean; // fines go to Free Parking, whoever lands there takes the pot
+  vacationPot: boolean; // the Vacation square holds a jackpot: whoever lands there takes it
+  vacationShare: number; // percent of every rent payment that goes into the Vacation jackpot instead of the owner
   auctions: boolean; // a player who lands on a free country may auction it instead of buying
   loans: boolean; // players may borrow from the bank and must repay within LOAN_ROUNDS rounds
   loanInterest: number; // percent added to the borrowed amount
@@ -25,7 +26,7 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = {
   startMoney: 1500, goSalary: 300, bonusAfterRounds: 5, bonusSalary: 1000, turnTimer: 90, maxPlayers: 6,
-  buildings: true, inflation: true, doublesRoll: true, freeParkingPot: false,
+  buildings: true, inflation: true, doublesRoll: true, vacationPot: true, vacationShare: 25,
   auctions: true, loans: false, loanInterest: 10, teamMode: false, teamCount: 2,
 };
 
@@ -43,6 +44,7 @@ export const SETTING_OPTIONS = {
   turnTimer: [0, 30, 60, 90, 120],
   maxPlayers: [2, 3, 4, 5, 6, 8],
   loanInterest: [0, 10, 20],
+  vacationShare: [0, 10, 25, 50, 100],
   teamCount: [2, 3, 4],
 } as const;
 
@@ -84,7 +86,7 @@ const c = (iso: string, name: string, price: number, group: number, c1: string, 
 });
 const chance = (): Square => ({ kind: "chance", name: "Chance", icon: "❓" });
 
-// 40 squares: corners at 0 Go, 10 Jail, 20 Free Parking, 30 Go To Jail; 4 Chance; 32 countries
+// 40 squares: corners at 0 Go, 10 Jail, 20 Vacation, 30 Go To Jail; 4 Chance; 32 countries
 export const BOARD: Square[] = [
   { kind: "go", name: "Go", icon: "🏁" },
   c("ng", "Nigeria", 60, 0, "#008751", "#ffffff"), c("ke", "Kenya", 60, 0, "#bb0000", "#006600"), chance(),
@@ -98,7 +100,7 @@ export const BOARD: Square[] = [
   c("ir", "Iran", 220, 4, "#239f40", "#da0000"),
   c("tr", "Turkey", 240, 5, "#e30a17", "#ffffff"), c("gr", "Greece", 240, 5, "#0d5eaf", "#ffffff"),
   c("pl", "Poland", 260, 5, "#dc143c", "#ffffff"),
-  { kind: "parking", name: "Free Parking", icon: "🅿️" },
+  { kind: "parking", name: "Vacation", icon: "🏖️" },
   c("mx", "Mexico", 280, 6, "#006847", "#ce1126"), c("co", "Colombia", 280, 6, "#fcd116", "#003893"), chance(),
   c("ar", "Argentina", 300, 7, "#74acdf", "#f6b40e"), c("cl", "Chile", 300, 7, "#d52b1e", "#0039a6"),
   c("br", "Brazil", 320, 7, "#009c3b", "#ffdf00"),
@@ -143,7 +145,7 @@ function buildBigBoard(): Square[] {
 
   const corners: Square[] = [
     { kind: "jail", name: "Jail", icon: "🔒" },
-    { kind: "parking", name: "Free Parking", icon: "🅿️" },
+    { kind: "parking", name: "Vacation", icon: "🏖️" },
     { kind: "gotojail", name: "Go To Jail", icon: "🚔" },
   ];
   const out: Square[] = [{ kind: "go", name: "Go", icon: "🏁" }];
@@ -242,7 +244,7 @@ export type GameState = {
   players: Player[];
   owners: Record<number, string>; // square index -> player id
   houses: Record<number, number>; // square index -> build level (1-4 houses, 5 hotel)
-  pot: number; // Free Parking jackpot
+  pot: number; // Vacation jackpot
   turn: number; // index into players
   round: number; // completed rounds, drives rent inflation
   rollCount: number; // increments on every roll (lets the UI animate each roll)
@@ -365,12 +367,14 @@ export function sellError(g: GameState, playerId: string, index: number): string
 }
 
 /** Pay `amount` from `from` to `to` (null = bank). Bankrupts `from` if they can't cover it. */
-function pay(g: GameState, from: Player, to: Player | null, amount: number) {
-  const toPot = !to && g.settings.freeParkingPot;
+function pay(g: GameState, from: Player, to: Player | null, amount: number, potCut = 0) {
+  const toPot = !to && g.settings.vacationPot; // fines paid to the bank also feed the Vacation jackpot
   if (from.money >= amount) {
     from.money -= amount;
-    if (to) to.money += amount;
-    else if (toPot) g.pot += amount;
+    if (to) {
+      to.money += amount - potCut;
+      g.pot += potCut;
+    } else if (toPot) g.pot += amount;
     return;
   }
   if (to) to.money += from.money;
@@ -560,7 +564,7 @@ function landOn(g: GameState, p: Player, rng: Rng, allowChance = true) {
       break;
     case "parking":
       if (g.pot > 0) {
-        say(g, `🅿️ ${p.name} collects $${g.pot} from Free Parking!`);
+        say(g, `🏖️ ${p.name} is on Vacation and takes the ${g.pot} jackpot!`);
         p.money += g.pot;
         g.pot = 0;
       }
@@ -578,8 +582,10 @@ function landOn(g: GameState, p: Player, rng: Rng, allowChance = true) {
       } else if (ownerId !== p.id) {
         const owner = byId(g, ownerId)!;
         const rent = rentFor(g, p.pos);
-        say(g, `${p.name} pays $${rent} rent to ${owner.name} for ${s.name}.`);
-        pay(g, p, owner, rent);
+        // a share of every rent goes to the Vacation jackpot (the owner keeps the rest)
+        const cut = g.settings.vacationPot ? Math.floor((rent * g.settings.vacationShare) / 100) : 0;
+        say(g, `${p.name} pays ${rent} rent to ${owner.name} for ${s.name}${cut ? ` (${cut} goes to the Vacation jackpot)` : ""}.`);
+        pay(g, p, owner, rent, cut);
       }
       break;
     }

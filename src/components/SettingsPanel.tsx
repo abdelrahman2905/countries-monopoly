@@ -3,7 +3,7 @@ import { SETTING_OPTIONS, type Settings } from "../../shared/game";
 type Props = { settings: Settings; editable: boolean; onChange: (patch: Partial<Settings>) => void };
 
 const toggles: {
-  key: "buildings" | "inflation" | "doublesRoll" | "freeParkingPot" | "auctions" | "loans" | "teamMode";
+  key: "buildings" | "inflation" | "doublesRoll" | "vacationPot" | "auctions" | "loans" | "teamMode";
   label: string;
   hint: string;
 }[] = [
@@ -13,7 +13,7 @@ const toggles: {
   { key: "buildings", label: "Houses & hotels", hint: "Build on a full color set to raise the rent" },
   { key: "inflation", label: "Rent inflation", hint: "Rents rise over time so games always end" },
   { key: "doublesRoll", label: "Roll again on doubles", hint: "Doubles give you an extra turn" },
-  { key: "freeParkingPot", label: "Free Parking jackpot", hint: "Fines go to the pot; land on Free Parking to win it" },
+  { key: "vacationPot", label: "Vacation jackpot", hint: "A share of every rent (and bank fines) goes into the Vacation pot. Whoever lands on Vacation takes it all" },
 ];
 
 const money = (n: number) => `$${n.toLocaleString()}`;
@@ -42,6 +42,7 @@ export default function SettingsPanel({ settings, editable, onChange }: Props) {
       {select("turnTimer", "Turn timer", (n) => (n ? `${n} seconds` : "off"))}
       {select("maxPlayers", "Max players", (n) => `${n} players`)}
       {settings.loans && select("loanInterest", "Loan interest", (n) => `${n}%`)}
+      {settings.vacationPot && select("vacationShare", "Rent share to Vacation", (n) => (n ? `${n}%` : "none (fines only)"))}
       {settings.teamMode && select("teamCount", "Number of teams", (n) => `${n} teams`)}
       <div className="space-y-2 border-t border-white/10 pt-3">
         {toggles.map((t) => (

@@ -301,6 +301,42 @@ assert.deepEqual(prices, [...prices].sort((a, b) => a - b), "prices rise around 
   assert.notEqual(g.phase, "claim");
 }
 
+// Vacation: a share of every rent goes into the jackpot; whoever lands on Vacation takes it
+{
+  const g = newGame("vc");
+  apply(g, "a", { type: "JOIN", name: "A" });
+  apply(g, "b", { type: "JOIN", name: "B" });
+  apply(g, "a", { type: "START" });
+  g.settings.inflation = false;
+  g.settings.doublesRoll = false;
+  assert.equal(BOARD[20].name, "Vacation");
+  const russia = groupSquares(BOARD, 11)[2]; // price 480, rent 48
+  g.owners[russia] = "b";
+  const [A, Bp] = g.players;
+  const roll = (pos: number) => { g.phase = "roll"; g.turn = 0; A.pos = pos; apply(g, "a", { type: "ROLL" }, () => 0.5); }; // 4 + 4 = 8
+  roll(russia - 8);
+  assert.equal(A.money, 1500 - 48);
+  assert.equal(Bp.money, 1500 + 36, "owner keeps 75%");
+  assert.equal(g.pot, 12, "25% went to the Vacation jackpot");
+  roll(20 - 8);
+  assert.equal(A.pos, 20);
+  assert.equal(A.money, 1500 - 48 + 12, "landing on Vacation takes the jackpot");
+  assert.equal(g.pot, 0);
+  // share 0 or jackpot off: owners get the full rent
+  g.settings.vacationShare = 0;
+  roll(russia - 8);
+  assert.equal(g.pot, 0);
+  g.settings.vacationShare = 100;
+  g.settings.vacationPot = false;
+  roll(russia - 8);
+  assert.equal(g.pot, 0, "jackpot off: nothing collected");
+  g.settings.vacationPot = true;
+  const before = Bp.money;
+  roll(russia - 8);
+  assert.equal(Bp.money, before, "100% share: the owner gets nothing, the jackpot gets it all");
+  assert.equal(g.pot, 48);
+}
+
 // Teams: big map, rent-free land for teammates, shared color sets, gifts, last team standing wins
 {
   const g = newGame("tm");
@@ -368,7 +404,7 @@ for (let seed = 1; seed <= 150; seed++) {
   apply(g, "h", { type: "JOIN", name: "Host" }, rng);
   g.players[0].isBot = true;
   g.settings = {
-    ...DEFAULT_SETTINGS, buildings: seed % 4 !== 0, doublesRoll: seed % 3 !== 0, freeParkingPot: seed % 2 === 0,
+    ...DEFAULT_SETTINGS, buildings: seed % 4 !== 0, doublesRoll: seed % 3 !== 0, vacationPot: seed % 2 === 0, vacationShare: [0, 10, 25, 50, 100][seed % 5],
     loans: seed % 5 !== 0, auctions: seed % 7 !== 0,
     teamMode: seed % 3 === 0, teamCount: 2 + (seed % 3),
   };

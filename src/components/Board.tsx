@@ -96,7 +96,7 @@ export default function Board({ g, shown, rolling, width, onSelect, children }: 
             >
               <span style={{ fontSize: q(3.4) }} className="leading-none">{s.icon}</span>
               <span style={{ marginTop: q(0.3) }} className={big ? "@max-[1150px]:hidden" : "@max-[500px]:hidden"}>{s.name}</span>
-              {s.kind === "parking" && g.settings.freeParkingPot && g.pot > 0 && <span className="text-amber-300">${g.pot}</span>}
+              {s.kind === "parking" && g.settings.vacationPot && <span className="font-extrabold text-amber-300" style={{ fontSize: q(1.9) }}>${g.pot}</span>}
               <div className="absolute inset-x-0 flex flex-wrap items-center justify-center" style={{ bottom: q(0.6), gap: q(0.2) }}>
                 {here.map(token)}
               </div>

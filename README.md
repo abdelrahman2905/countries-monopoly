@@ -23,6 +23,11 @@ Buy countries, collect rent, and bankrupt your opponents. The last player standi
 - **Zoom:** zoom the map from 100% to 350% with the +/− buttons, Ctrl + mouse wheel (or trackpad pinch), or a
   two-finger pinch on a phone. Drag to move around, "📍 Me" jumps to your piece, and "Follow" keeps the view on
   whoever is moving. Country names appear once the map is big enough to show them.
+- **Vacation:** the corner square is a Vacation resort with a jackpot. A share of every rent payment (host picks 10% to
+  100%, default 25%, the owner keeps the rest) and bank fines go into the pot, and whoever lands on Vacation takes it
+  all.
+- **Collections:** a card listing your countries grouped by color set, showing which ones you still miss and who owns
+  them (or that they are free). Switch to see anyone else's sets.
 - **Animations:** dice tumble when rolled, pieces hop square by square, and a country's owner bar lights up in the
   buyer's color when it is bought.
 - **Landing on a free country:** buy it, skip it, or put it up for **auction**. Everyone can bid at any time with
@@ -32,7 +37,7 @@ Buy countries, collect rent, and bankrupt your opponents. The last player standi
   sell to the bank.
 - **Every player picks their own name and piece color** in the lobby.
 - **The host picks the room settings** in the lobby: starting money, Go salary, bonus salary, turn timer, max players,
-  houses & hotels on/off, rent inflation on/off, roll-again-on-doubles, and a Free Parking jackpot.
+  houses & hotels on/off, rent inflation on/off, roll-again-on-doubles, and the Vacation jackpot.
 - **Go salary:** $300 every time you pass Go; from round 5 on it becomes a $1000 bonus salary (both configurable).
 - **Chance cards:** mostly payouts (tourism boom, lottery, inheritance...), birthday cards where every player pays you
   $50 or $30, but also property repairs ($15 per country, $40 per house, $50 per hotel), a $50 global tax day, fines,
@@ -42,7 +47,7 @@ Buy countries, collect rent, and bankrupt your opponents. The last player standi
 - Roll two dice. Land on an unowned country to **buy** it; land on an owned one and you pay **rent**.
 - **Houses & hotels:** once you own *every* country of a color set, its rent doubles and you can build (on your turn,
   tap a country, then Build). Build evenly: up to 4 houses, then a hotel. Rent climbs steeply with each level.
-- 40 squares: Go, Jail, Free Parking, Go To Jail, 4 Chance squares, **32 countries** in 12 color sets.
+- 40 squares: Go, Jail, Vacation, Go To Jail, 4 Chance squares, **32 countries** in 12 color sets.
   Each country tile shows its real flag, its outline and its flag colors.
 - With rent inflation on (default), rents rise 15% every 3 rounds so games always end.
 - Can't pay? You're bankrupt and out. Your countries return to the bank.

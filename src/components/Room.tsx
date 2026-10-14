@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { GIVE_AMOUNTS, MAX_BUILD_LEVEL, MIN_PLAYERS, TEAMS, boardOf, currentPlayer, groupSquares, level, type GameState, type Player } from "../../shared/game";
+import { GIVE_AMOUNTS, MAX_BUILD_LEVEL, MIN_PLAYERS, TEAMS, boardOf, currentPlayer, groupColor, groupSquares, level, type GameState, type Player } from "../../shared/game";
 import { useGame } from "../lib/useGame";
 import { useBoardAnimation } from "../lib/useBoardAnimation";
 import { MAX_ZOOM, MIN_ZOOM, useBoardZoom } from "../lib/useBoardZoom";
@@ -10,6 +10,7 @@ import TurnPanel from "./TurnPanel";
 import { Flag } from "./CountryArt";
 import ProfilePicker from "./ProfilePicker";
 import PropertyModal from "./PropertyModal";
+import SetsCard from "./SetsCard";
 import SettingsPanel from "./SettingsPanel";
 
 type Props = { code: string; name: string; onLeave: () => void };
@@ -153,7 +154,9 @@ function Game({ g, me, send, onLeave }: { g: GameState; me: Player; send: Send; 
     g.settings.teamMode && g.phase !== "over" && !me.bankrupt && !p.bankrupt && p.id !== me.id && p.team === me.team;
 
   const playerRow = (p: Player) => {
-    const owned = boardOf(g).flatMap((s, i) => (g.owners[i] === p.id && s.kind === "country" ? [{ s, i }] : []));
+    const owned = boardOf(g)
+      .flatMap((s, i) => (g.owners[i] === p.id && s.kind === "country" ? [{ s, i }] : []))
+      .sort((a, b) => (a.s.kind === "country" && b.s.kind === "country" ? a.s.group - b.s.group || a.i - b.i : 0));
     return (
       <li key={p.id} className={p.bankrupt ? "opacity-40" : ""}>
         <div className={`flex items-center gap-2 rounded-lg px-2 py-1 ${p.id === cur.id && g.phase !== "over" ? "bg-indigo-500/20 ring-1 ring-indigo-400" : ""}`}>
@@ -189,7 +192,8 @@ function Game({ g, me, send, onLeave }: { g: GameState; me: Player; send: Send; 
                   key={i}
                   onClick={() => setSelected(i)}
                   className={`flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 hover:bg-white/20 ${full ? "ring-1 ring-emerald-400" : ""}`}
-                  title={full ? "You own the whole set" : s.name}
+                  title={full ? "Complete color set" : s.name}
+                  style={{ borderLeft: `4px solid ${groupColor(boardOf(g), s.group)}` }}
                 >
                   <Flag iso={s.iso} name={s.name} className="w-4" />
                   {s.name}
@@ -231,6 +235,7 @@ function Game({ g, me, send, onLeave }: { g: GameState; me: Player; send: Send; 
 
       <aside className="space-y-4">
         {g.phase !== "over" && !me.bankrupt && <TradePanel g={g} me={me} send={send} />}
+        <SetsCard g={g} me={me} onSelect={setSelected} />
         {g.settings.loans && !me.bankrupt && <BankCard g={g} me={me} canAct={canBorrow} send={send} />}
         <section className={card}>
           <h3 className="mb-2 font-bold">{g.settings.teamMode ? "Teams" : "Players"}</h3>

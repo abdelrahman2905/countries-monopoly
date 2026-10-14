@@ -106,7 +106,7 @@ export default function TurnPanel({ g, me, busy, send, onLeave }: Props) {
       {!myTurn && me.bankrupt && <div className="text-sm text-red-300">You are bankrupt, spectating.</div>}
       {g.turnDeadline && <Countdown deadline={g.turnDeadline} />}
       <div className="text-xs text-emerald-300">🏁 Passing Go pays ${salaryFor(g)}</div>
-      {g.settings.freeParkingPot && g.pot > 0 && <div className="text-xs text-amber-300">🅿️ Jackpot ${g.pot}</div>}
+      {g.settings.vacationPot && g.pot > 0 && <div className="text-xs text-amber-300">🏖️ Vacation jackpot ${g.pot}</div>}
       {mult > 1 && <div className="text-xs text-rose-300">Rent inflation ×{mult.toFixed(2)}</div>}
       <div className="text-xs text-slate-400">Tap any country for details{g.settings.buildings ? " and to build" : ""}.</div>
     </>
