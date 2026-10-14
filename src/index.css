@@ -4,6 +4,12 @@
   color-scheme: dark;
 }
 
+/* everything in the interface is sized in rem, so a bigger root size makes the whole UI bigger on big screens */
+html { font-size: 16px; }
+@media (min-width: 1024px) { html { font-size: 17.5px; } }
+@media (min-width: 1536px) { html { font-size: 19px; } }
+@media (min-width: 1920px) { html { font-size: 21px; } }
+
 body {
   margin: 0;
   min-height: 100vh;

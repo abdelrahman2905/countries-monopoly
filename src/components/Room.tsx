@@ -62,7 +62,7 @@ export default function Room({ code, name, onLeave }: Props) {
 
 function Shell(props: { code: string; onLeave: () => void; onCopy?: () => void; copied?: boolean; wide?: boolean; children: React.ReactNode }) {
   return (
-    <div className={`mx-auto w-full px-3 py-4 sm:px-6 ${props.wide ? "max-w-[1600px]" : "max-w-6xl"}`}>
+    <div className={`mx-auto w-full px-3 py-4 sm:px-6 ${props.wide ? "max-w-[2000px]" : "max-w-[1700px]"}`}>
       <header className="mb-4 flex items-center justify-between gap-2">
         <button onClick={props.onLeave} className="text-sm text-slate-400 hover:text-white">← Leave</button>
         <div className="flex items-center gap-2">
@@ -208,7 +208,7 @@ function Game({ g, me, send, onLeave }: { g: GameState; me: Player; send: Send; 
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="min-w-0">
         <div className="mb-2 flex flex-wrap items-center justify-end gap-2 text-sm text-white">
           <span className="mr-auto hidden text-xs text-slate-400 sm:inline">Ctrl + scroll or pinch to zoom, drag to move around</span>

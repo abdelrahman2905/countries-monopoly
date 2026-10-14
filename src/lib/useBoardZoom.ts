@@ -13,6 +13,7 @@ const clamp = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 export function useBoardZoom(big: boolean, squares: number) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [wrapW, setWrapW] = useState(0);
+  const [vh, setVh] = useState(() => window.innerHeight);
   const [zoom, setZoomState] = useState(1);
   const zoomRef = useRef(1);
   const pending = useRef<{ px: number; py: number; fx: number; fy: number; ratio: number } | null>(null);
@@ -26,7 +27,14 @@ export function useBoardZoom(big: boolean, squares: number) {
     setWrapW(el.clientWidth);
     return () => ro.disconnect();
   }, []);
-  const baseW = big ? Math.min(1100, Math.max(780, wrapW)) : Math.min(720, wrapW);
+  useEffect(() => {
+    const onResize = () => setVh(window.innerHeight);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  // as large as the screen allows: nearly the full height on desktops (never smaller than 640px), the full width on phones
+  const fitH = Math.max(640, vh - 150);
+  const baseW = big ? Math.min(1400, fitH * 1.25, Math.max(780, wrapW)) : Math.min(1100, fitH, wrapW);
   const boardW = Math.round(baseW * zoom);
 
   /** Zoom to `next`, keeping the point under `focal` (client coordinates) still. */
