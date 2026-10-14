@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {
   apply, botAction, buildError, currentPlayer, groupSquares, houseCost, newGame, rentFor, BOARD,
-  DEFAULT_SETTINGS, MAX_BUILD_LEVEL,
+  DEFAULT_SETTINGS, MAX_BUILD_LEVEL, PLAYER_COLORS, repairBill, salaryFor,
 } from "../shared/game";
 
 function seeded(seed: number) {
@@ -30,6 +30,36 @@ for (let gr = 0; gr < 12; gr++) assert.ok([2, 3].includes(groupSquares(gr).lengt
   assert.equal(apply(g, g.players[1].id, { type: "ROLL" }), "Not your turn.");
   assert.equal(apply(g, "a", { type: "BUY" }), "Nothing to buy.");
   assert.equal(apply(g, "zz", { type: "JOIN", name: "late" }), "Game already started.");
+}
+
+// Profiles: unique colors, name editing only in the lobby
+{
+  const g = newGame("p");
+  apply(g, "a", { type: "JOIN", name: "A" });
+  apply(g, "b", { type: "JOIN", name: "B" });
+  assert.notEqual(g.players[0].color, g.players[1].color);
+  assert.equal(apply(g, "b", { type: "SET_PROFILE", color: g.players[0].color }), "That color is taken.");
+  assert.equal(apply(g, "b", { type: "SET_PROFILE", color: "#123456" }), "Unknown color.");
+  assert.equal(apply(g, "b", { type: "SET_PROFILE", name: "  Zed ", color: PLAYER_COLORS[11] }), null);
+  assert.equal(g.players[1].name, "Zed");
+  assert.equal(g.players[1].color, PLAYER_COLORS[11]);
+  assert.equal(apply(g, "b", { type: "SET_PROFILE", name: "   " }), "Name can't be empty.");
+}
+
+// Go salary: $300 per pass, bonus salary after N rounds; repair bill: $15/country, $40/house, $50/hotel
+{
+  const g = newGame("s");
+  assert.equal(salaryFor(g), 300);
+  g.round = 5;
+  assert.equal(salaryFor(g), 1000);
+  g.settings.bonusAfterRounds = 0;
+  assert.equal(salaryFor(g), 300);
+  const [x, y] = groupSquares(0);
+  assert.equal(repairBill(g, "a"), 0);
+  g.owners[x] = "a"; g.owners[y] = "a";
+  assert.equal(repairBill(g, "a"), 30);
+  g.houses[x] = 2; g.houses[y] = MAX_BUILD_LEVEL;
+  assert.equal(repairBill(g, "a"), 15 + 80 + 15 + 50);
 }
 
 // Building: needs the full set, builds evenly, charges money, raises rent, sells for half

@@ -75,23 +75,30 @@ export default function Board({ g, onSelect, children }: Props) {
               className="pointer-events-none absolute bottom-[1%] left-[6%] h-[88%] w-[88%]"
             />
             {/* color-set band; shows houses / hotel once built */}
-            <div className="relative flex h-[1.9cqw] w-full items-center justify-center gap-[0.25cqw]" style={{ background: GROUP_COLORS[s.group] }}>
+            <div className="relative flex h-[1.5cqw] w-full items-center justify-center gap-[0.25cqw]" style={{ background: GROUP_COLORS[s.group] }}>
               {lvl === MAX_BUILD_LEVEL ? (
-                <span className="h-[1.1cqw] w-[2.4cqw] rounded-[2px] bg-red-600 ring-1 ring-white" title="Hotel" />
+                <span className="h-[1cqw] w-[2.4cqw] rounded-[2px] bg-red-600 ring-1 ring-white" title="Hotel" />
               ) : (
                 Array.from({ length: lvl }, (_, k) => (
                   <span key={k} className="h-[1.1cqw] w-[1.1cqw] rounded-[2px] bg-emerald-400 ring-1 ring-white" />
                 ))
               )}
             </div>
-            <Flag iso={s.iso} name={s.name} className="relative mt-[0.4cqw] w-[54%]" />
+            <Flag iso={s.iso} name={s.name} className="relative mt-[0.3cqw] w-[46%]" />
             <span
               className="relative mt-[0.2cqw] max-w-full truncate px-[2px] font-extrabold leading-none text-slate-900 [text-shadow:0_0_3px_#fff,0_0_3px_#fff] @max-[500px]:hidden"
-              style={{ fontSize: "1.4cqw" }}
+              style={{ fontSize: "1.35cqw" }}
             >
               {s.name}
             </span>
-            <div className="absolute inset-x-0 top-[45%] z-10 flex flex-wrap items-center justify-center gap-[0.2cqw]">
+            {/* price is always visible under the country */}
+            <span
+              className="relative mt-[0.1cqw] font-extrabold leading-none text-slate-900 [text-shadow:0_0_3px_#fff,0_0_3px_#fff]"
+              style={{ fontSize: "max(7px, 1.45cqw)" }}
+            >
+              ${s.price}
+            </span>
+            <div className="absolute inset-x-0 top-[28%] z-10 flex flex-wrap items-center justify-center gap-[0.2cqw]">
               {here.map((p) => (
                 <span
                   key={p.id}

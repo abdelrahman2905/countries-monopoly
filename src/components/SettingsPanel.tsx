@@ -12,7 +12,7 @@ const toggles: { key: "buildings" | "inflation" | "doublesRoll" | "freeParkingPo
 const money = (n: number) => `$${n.toLocaleString()}`;
 
 export default function SettingsPanel({ settings, editable, onChange }: Props) {
-  const select = (key: "startMoney" | "goSalary" | "maxPlayers", label: string, fmt: (n: number) => string) => (
+  const select = (key: keyof typeof SETTING_OPTIONS, label: string, fmt: (n: number) => string) => (
     <label className="flex items-center justify-between gap-3">
       <span className="text-sm text-slate-300">{label}</span>
       <select
@@ -29,7 +29,10 @@ export default function SettingsPanel({ settings, editable, onChange }: Props) {
   return (
     <div className="space-y-3">
       {select("startMoney", "Starting money", money)}
-      {select("goSalary", "Go salary", money)}
+      {select("goSalary", "Go salary (each pass)", money)}
+      {select("bonusAfterRounds", "Bonus salary after", (n) => (n ? `${n} rounds` : "never"))}
+      {settings.bonusAfterRounds > 0 && select("bonusSalary", "Bonus Go salary", money)}
+      {select("turnTimer", "Turn timer", (n) => (n ? `${n} seconds` : "off"))}
       {select("maxPlayers", "Max players", (n) => `${n} players`)}
       <div className="space-y-2 border-t border-white/10 pt-3">
         {toggles.map((t) => (

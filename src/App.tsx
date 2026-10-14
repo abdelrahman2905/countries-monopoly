@@ -2,6 +2,7 @@ import { useState } from "react";
 import Home from "./components/Home";
 import Room from "./components/Room";
 import Footer from "./components/Footer";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 const initialRoom = () => new URLSearchParams(location.search).get("room")?.toLowerCase() || "";
 const initialName = () => {
@@ -32,11 +33,13 @@ export default function App() {
   return (
     <div className="flex min-h-screen flex-col">
       <main className="flex-1">
-        {entered && code ? (
-          <Room code={code} name={name.trim()} onLeave={leave} />
-        ) : (
-          <Home name={name} setName={setName} onEnter={enter} initialCode={code} />
-        )}
+        <ErrorBoundary>
+          {entered && code ? (
+            <Room code={code} name={name.trim()} onLeave={leave} />
+          ) : (
+            <Home name={name} setName={setName} onEnter={enter} initialCode={code} />
+          )}
+        </ErrorBoundary>
       </main>
       <Footer />
     </div>

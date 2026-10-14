@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { BOARD, MIN_PLAYERS, currentPlayer, groupSquares, level, rentMultiplier, MAX_BUILD_LEVEL, type GameState, type Player } from "../../shared/game";
+import { useEffect, useState } from "react";
+import { BOARD, MIN_PLAYERS, currentPlayer, groupSquares, level, rentMultiplier, salaryFor, MAX_BUILD_LEVEL, type GameState, type Player } from "../../shared/game";
 import { useGame } from "../lib/useGame";
 import Board from "./Board";
 import { Flag } from "./CountryArt";
+import ProfilePicker from "./ProfilePicker";
 import PropertyModal from "./PropertyModal";
 import SettingsPanel from "./SettingsPanel";
 
@@ -84,6 +85,9 @@ function Lobby({ g, me, send }: { g: GameState; me: Player; send: Send }) {
         <p className="mt-1 text-sm text-slate-400">
           Share the code <b className="font-mono text-white">{g.code}</b> or the link. {MIN_PLAYERS}–{g.settings.maxPlayers} players.
         </p>
+        <div className="mt-4">
+          <ProfilePicker me={me} taken={new Set(g.players.map((p) => p.color))} onChange={(patch) => send({ type: "SET_PROFILE", ...patch })} />
+        </div>
         <ul className="mt-4 space-y-2">
           {g.players.map((p) => (
             <li key={p.id} className="flex items-center gap-3 rounded-lg bg-white/5 px-3 py-2">
@@ -114,6 +118,16 @@ function Lobby({ g, me, send }: { g: GameState; me: Player; send: Send }) {
       </section>
     </div>
   );
+}
+
+function Countdown({ deadline }: { deadline: number }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, []);
+  const left = Math.max(0, Math.ceil((deadline - now) / 1000));
+  return <div className={`text-xs ${left <= 10 ? "text-red-300" : "text-slate-300"}`}>⏱ {left}s left</div>;
 }
 
 function Game({ g, me, send, onLeave }: { g: GameState; me: Player; send: Send; onLeave: () => void }) {
@@ -157,6 +171,8 @@ function Game({ g, me, send, onLeave }: { g: GameState; me: Player; send: Send; 
               </div>
             )}
             {!myTurn && me.bankrupt && <div className="text-sm text-red-300">You are bankrupt, spectating.</div>}
+            {g.turnDeadline && <Countdown deadline={g.turnDeadline} />}
+            <div className="text-xs text-emerald-300">🏁 Passing Go pays ${salaryFor(g)}</div>
             {g.settings.freeParkingPot && g.pot > 0 && <div className="text-xs text-amber-300">🅿️ Jackpot ${g.pot}</div>}
             {mult > 1 && <div className="text-xs text-rose-300">Rent inflation ×{mult.toFixed(2)}</div>}
             <div className="text-xs text-slate-400">Tap any country for details{g.settings.buildings ? " and to build" : ""}.</div>

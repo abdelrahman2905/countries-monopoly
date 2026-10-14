@@ -35,16 +35,20 @@ export function useGame(code: string, name: string) {
       socket.send(JSON.stringify({ type: "JOIN", name, token }));
     });
     socket.addEventListener("close", () => setConnected(false));
+    let clear: ReturnType<typeof setTimeout> | undefined;
+    const flash = (text: string) => {
+      setError(text);
+      clearTimeout(clear);
+      clear = setTimeout(() => setError(null), 3500);
+    };
     socket.addEventListener("message", (e) => {
-      const msg = JSON.parse(e.data as string);
-      if (msg.type === "STATE") setState(msg.state);
-      else if (msg.type === "YOU") setMyId(msg.id);
-      else if (msg.type === "ERROR") {
-        setError(msg.message);
-        setTimeout(() => setError(null), 3500);
-      }
+      let msg: { type: string; state?: GameState; id?: string; message?: string };
+      try { msg = JSON.parse(e.data as string); } catch { return; }
+      if (msg.type === "STATE" && msg.state) setState(msg.state);
+      else if (msg.type === "YOU" && msg.id) setMyId(msg.id);
+      else if ((msg.type === "ERROR" || msg.type === "NOTICE") && msg.message) flash(msg.message);
     });
-    return () => socket.close();
+    return () => { clearTimeout(clear); socket.close(); };
   }, [code, name]);
 
   // Clients only send intents; the server decides what actually happens.

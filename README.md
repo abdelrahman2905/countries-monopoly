@@ -10,8 +10,15 @@ Buy countries, collect rent, and bankrupt your opponents. The last player standi
 ## How it plays
 
 - Create a room, share the 5-character code (or the link), and 2–6 players join. The host can add 🤖 bots.
-- **The host picks the room settings** in the lobby: starting money, Go salary, max players, houses & hotels on/off,
-  rent inflation on/off, roll-again-on-doubles, and a Free Parking jackpot.
+- **Every player picks their own name and piece color** in the lobby.
+- **The host picks the room settings** in the lobby: starting money, Go salary, bonus salary, turn timer, max players,
+  houses & hotels on/off, rent inflation on/off, roll-again-on-doubles, and a Free Parking jackpot.
+- **Go salary:** $300 every time you pass Go; from round 5 on it becomes a $1000 bonus salary (both configurable).
+- **Chance cards:** mostly payouts (tourism boom, lottery, inheritance...), birthday cards where every player pays you
+  $50 or $30, but also property repairs ($15 per country, $40 per house, $50 per hotel), a $50 global tax day, fines,
+  jail, and moving around the board.
+- **Stable:** the server saves each game, so a server restart doesn't lose the match; players reconnect automatically;
+  an optional turn timer plays for idle players; offline players are auto-played; abandoned rooms pause.
 - Roll two dice. Land on an unowned country to **buy** it; land on an owned one and you pay **rent**.
 - **Houses & hotels:** once you own *every* country of a color set, its rent doubles and you can build (on your turn,
   tap a country, then Build). Build evenly: up to 4 houses, then a hotel. Rent climbs steeply with each level.

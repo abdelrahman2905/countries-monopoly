@@ -8,7 +8,10 @@ export const MAX_BUILD_LEVEL = 5; // 1-4 houses, 5 = hotel
 // ---------- Room settings (chosen by the host in the lobby) ----------
 export type Settings = {
   startMoney: number;
-  goSalary: number;
+  goSalary: number; // paid every time a player passes Go
+  bonusAfterRounds: number; // from this round on, Go pays bonusSalary instead (0 = never)
+  bonusSalary: number;
+  turnTimer: number; // seconds per turn before the server plays for an idle player (0 = off)
   maxPlayers: number;
   buildings: boolean; // houses & hotels
   inflation: boolean; // rents rise over time so games end
@@ -17,15 +20,22 @@ export type Settings = {
 };
 
 export const DEFAULT_SETTINGS: Settings = {
-  startMoney: 1500, goSalary: 200, maxPlayers: 6,
+  startMoney: 1500, goSalary: 300, bonusAfterRounds: 5, bonusSalary: 1000, turnTimer: 90, maxPlayers: 6,
   buildings: true, inflation: true, doublesRoll: true, freeParkingPot: false,
 };
 
 export const SETTING_OPTIONS = {
   startMoney: [1000, 1500, 2000, 3000, 5000],
   goSalary: [0, 100, 200, 300, 500],
+  bonusAfterRounds: [0, 3, 5, 8, 10],
+  bonusSalary: [500, 1000, 1500, 2000],
+  turnTimer: [0, 30, 60, 90, 120],
   maxPlayers: [2, 3, 4, 5, 6],
 } as const;
+
+/** What a player collects for passing Go right now. */
+export const salaryFor = (g: GameState): number =>
+  g.settings.bonusAfterRounds > 0 && g.round >= g.settings.bonusAfterRounds ? g.settings.bonusSalary : g.settings.goSalary;
 
 /** Returns a cleaned copy of `patch` merged into `base`, or an error message. */
 export function mergeSettings(base: Settings, patch: unknown): Settings | string {
@@ -100,7 +110,12 @@ export const houseCost = (index: number): number => {
 /** Rent multipliers over the base rent for 0 (no monopoly), 1-4 houses, hotel. */
 export const RENT_BY_LEVEL = [1, 5, 12, 22, 32, 45];
 
-export const PLAYER_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#14b8a6"];
+// Colors players can choose from (each color can be used by one player only)
+export const PLAYER_COLORS = [
+  "#ef4444", "#f97316", "#eab308", "#84cc16", "#22c55e", "#14b8a6",
+  "#06b6d4", "#3b82f6", "#6366f1", "#a855f7", "#ec4899", "#94a3b8",
+];
+const freeColor = (g: GameState) => PLAYER_COLORS.find((c) => !g.players.some((p) => p.color === c)) ?? PLAYER_COLORS[0];
 
 export type Player = {
   id: string;
@@ -131,11 +146,13 @@ export type GameState = {
   canBuy: number | null; // square index offered for purchase
   extraRoll: boolean; // rolled doubles, rolls again after this action
   winnerId: string | null;
+  turnDeadline: number | null; // epoch ms; set by the server when a turn timer is on
   log: string[];
 };
 
 export type Action =
   | { type: "JOIN"; name: string }
+  | { type: "SET_PROFILE"; name?: string; color?: string }
   | { type: "SET_SETTINGS"; settings: Partial<Settings> }
   | { type: "ADD_BOT" }
   | { type: "START" }
@@ -149,7 +166,7 @@ export type Rng = () => number;
 
 export const newGame = (code: string): GameState => ({
   code, phase: "lobby", settings: { ...DEFAULT_SETTINGS }, hostId: null, players: [], owners: {}, houses: {},
-  pot: 0, turn: 0, round: 0, dice: null, canBuy: null, extraRoll: false, winnerId: null, log: [],
+  pot: 0, turn: 0, round: 0, dice: null, canBuy: null, extraRoll: false, winnerId: null, turnDeadline: null, log: [],
 });
 
 const say = (g: GameState, msg: string) => {
@@ -240,9 +257,10 @@ function checkWinner(g: GameState) {
 }
 
 function moveTo(g: GameState, p: Player, target: number, collectGo: boolean) {
-  if (collectGo && g.settings.goSalary > 0) {
-    p.money += g.settings.goSalary;
-    say(g, `${p.name} passed Go and collected $${g.settings.goSalary}.`);
+  const salary = salaryFor(g);
+  if (collectGo && salary > 0) {
+    p.money += salary;
+    say(g, `${p.name} passed Go and collected $${salary}${salary === g.settings.bonusSalary && salary !== g.settings.goSalary ? " (bonus salary!)" : ""}.`);
   }
   p.pos = target;
 }
@@ -253,23 +271,76 @@ function sendToJail(g: GameState, p: Player) {
   g.extraRoll = false;
 }
 
-function drawChance(g: GameState, p: Player, rng: Rng) {
-  switch (Math.floor(rng() * 7)) {
-    case 0: say(g, `❓ ${p.name}: Tourism boom! Collect $100.`); p.money += 100; break;
-    case 1: say(g, `❓ ${p.name}: Lost luggage. Pay $60.`); pay(g, p, null, 60); break;
-    case 2: say(g, `❓ ${p.name}: Advance to Go!`); moveTo(g, p, 0, true); break;
-    case 3:
-      say(g, `❓ ${p.name}: Go back 3 squares.`);
-      p.pos = (p.pos + BOARD.length - 3) % BOARD.length;
-      landOn(g, p, rng, false);
-      break;
-    case 4: say(g, `❓ ${p.name}: Caught smuggling! Go to Jail.`); sendToJail(g, p); break;
-    case 5:
-      say(g, `❓ ${p.name}: Birthday! Every player gives $20.`);
-      for (const o of alive(g)) if (o.id !== p.id) pay(g, o, p, 20);
-      break;
-    default: say(g, `❓ ${p.name}: Speeding fine. Pay $40.`); pay(g, p, null, 40);
+export const REPAIR_COUNTRY = 15;
+export const REPAIR_HOUSE = 40;
+export const REPAIR_HOTEL = 50;
+
+/** What a player would owe for "property repairs": per country, per house, per hotel. */
+export function repairBill(g: GameState, playerId: string): number {
+  let total = 0;
+  for (const [i, o] of Object.entries(g.owners)) {
+    if (o !== playerId) continue;
+    const lvl = level(g, Number(i));
+    total += REPAIR_COUNTRY + (lvl === MAX_BUILD_LEVEL ? REPAIR_HOTEL : lvl * REPAIR_HOUSE);
   }
+  return total;
+}
+
+// Chance deck: most cards pay out, some take money, some move you around.
+type Card = (g: GameState, p: Player, rng: Rng) => void;
+const gain = (amount: number, text: string): Card => (g, p) => {
+  say(g, `❓ ${p.name}: ${text} Collect $${amount}.`);
+  p.money += amount;
+};
+const collectFromEach = (amount: number, text: string): Card => (g, p) => {
+  say(g, `❓ ${p.name}: ${text} Every player pays them $${amount}.`);
+  for (const o of alive(g)) if (o.id !== p.id) pay(g, o, p, amount);
+};
+const lose = (amount: number, text: string): Card => (g, p) => {
+  say(g, `❓ ${p.name}: ${text} Pay $${amount}.`);
+  pay(g, p, null, amount);
+};
+
+const CHANCE_DECK: Card[] = [
+  gain(150, "Tourism boom!"),
+  gain(200, "You won the national lottery!"),
+  gain(100, "Bank error in your favor."),
+  gain(75, "Tax refund."),
+  gain(250, "A distant relative left you an inheritance."),
+  gain(120, "Your export business is booming."),
+  collectFromEach(50, "It's your birthday!"),
+  collectFromEach(30, "Charity gala: you are the guest of honor."),
+  (g, p) => {
+    say(g, `❓ ${p.name}: Advance to Go!`);
+    moveTo(g, p, 0, true);
+  },
+  (g, p, rng) => {
+    say(g, `❓ ${p.name}: Go back 3 squares.`);
+    p.pos = (p.pos + BOARD.length - 3) % BOARD.length;
+    landOn(g, p, rng, false);
+  },
+  (g, p) => {
+    say(g, `❓ ${p.name}: Caught smuggling! Go to Jail.`);
+    sendToJail(g, p);
+  },
+  lose(60, "Lost luggage."),
+  lose(40, "Speeding fine."),
+  (g, p) => {
+    const bill = repairBill(g, p.id);
+    if (bill === 0) say(g, `❓ ${p.name}: Property repairs, but you own nothing. Lucky!`);
+    else {
+      say(g, `❓ ${p.name}: Property repairs! $${REPAIR_COUNTRY}/country, $${REPAIR_HOUSE}/house, $${REPAIR_HOTEL}/hotel = $${bill}.`);
+      pay(g, p, null, bill);
+    }
+  },
+  (g, p) => {
+    say(g, `❓ ${p.name}: Global tax day! Every player pays the bank $50.`);
+    for (const o of alive(g)) pay(g, o, null, 50);
+  },
+];
+
+function drawChance(g: GameState, p: Player, rng: Rng) {
+  CHANCE_DECK[Math.floor(rng() * CHANCE_DECK.length)](g, p, rng);
 }
 
 function landOn(g: GameState, p: Player, rng: Rng, allowChance = true) {
@@ -347,7 +418,7 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
     if (g.players.length >= g.settings.maxPlayers) return "Room is full.";
     const name = a.name.trim().slice(0, 16) || "Player";
     g.players.push({
-      id: playerId, name, color: PLAYER_COLORS[g.players.length], money: g.settings.startMoney, pos: 0,
+      id: playerId, name, color: freeColor(g), money: g.settings.startMoney, pos: 0,
       jailed: false, bankrupt: false, connected: true, isBot: false,
     });
     g.hostId ??= playerId;
@@ -359,6 +430,20 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
   const myTurn = g.phase !== "lobby" && g.phase !== "over" && currentPlayer(g).id === playerId && !me.bankrupt;
 
   switch (a.type) {
+    case "SET_PROFILE": {
+      if (g.phase !== "lobby") return "You can only change this before the game starts.";
+      if (a.name !== undefined) {
+        const name = String(a.name).trim().slice(0, 16);
+        if (!name) return "Name can't be empty.";
+        me.name = name;
+      }
+      if (a.color !== undefined) {
+        if (!PLAYER_COLORS.includes(a.color)) return "Unknown color.";
+        if (g.players.some((p) => p.id !== me.id && p.color === a.color)) return "That color is taken.";
+        me.color = a.color;
+      }
+      return null;
+    }
     case "SET_SETTINGS": {
       if (g.phase !== "lobby") return "Settings are locked once the game starts.";
       if (g.hostId !== playerId) return "Only the host can change settings.";
@@ -374,7 +459,7 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       if (g.players.length >= g.settings.maxPlayers) return "Room is full.";
       const n = g.players.filter((p) => p.isBot).length + 1;
       g.players.push({
-        id: `bot-${n}-${Math.floor(rng() * 1e6)}`, name: `Bot ${n}`, color: PLAYER_COLORS[g.players.length],
+        id: `bot-${n}-${Math.floor(rng() * 1e6)}`, name: `Bot ${n}`, color: freeColor(g),
         money: g.settings.startMoney, pos: 0, jailed: false, bankrupt: false, connected: true, isBot: true,
       });
       return null;
@@ -448,9 +533,9 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
 }
 
 /** Simple auto-player brain for bots and disconnected players. */
-export function botAction(g: GameState): Action | null {
+export function botAction(g: GameState, force = false): Action | null {
   const p = currentPlayer(g);
-  if (!p || p.bankrupt || !(p.isBot || !p.connected)) return null;
+  if (!p || p.bankrupt || !(force || p.isBot || !p.connected)) return null;
   if (g.phase === "roll") return { type: "ROLL" };
   if (g.phase === "action") {
     if (g.canBuy !== null) {
