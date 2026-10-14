@@ -20,3 +20,33 @@ body {
   100% { transform: scale(1); opacity: 1; }
 }
 .pop { animation: pop 0.25s ease-out; }
+
+/* a piece hops when it lands on a square */
+@keyframes hop {
+  0% { transform: translateY(0) scale(1); }
+  40% { transform: translateY(-45%) scale(1.15); }
+  100% { transform: translateY(0) scale(1); }
+}
+.hop { animation: hop 0.15s ease-out; }
+
+/* dice shake while rolling */
+@keyframes dice-roll {
+  0% { transform: rotate(0deg) translateY(0); }
+  25% { transform: rotate(-14deg) translateY(-6%); }
+  50% { transform: rotate(12deg) translateY(0); }
+  75% { transform: rotate(-8deg) translateY(-4%); }
+  100% { transform: rotate(0deg) translateY(0); }
+}
+.dice-roll { animation: dice-roll 0.35s ease-in-out infinite; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.5)); }
+
+/* owner bar switches on from the left when a country is bought */
+@keyframes bar-on {
+  0% { transform: scaleX(0); opacity: 0; filter: brightness(2.2); }
+  60% { transform: scaleX(1); opacity: 1; filter: brightness(1.8); }
+  100% { transform: scaleX(1); opacity: 1; filter: brightness(1); }
+}
+.owner-bar { transform-origin: left center; animation: bar-on 0.7s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hop, .dice-roll, .owner-bar, .pop { animation: none; }
+}

@@ -10,6 +10,13 @@ Buy countries, collect rent, and bankrupt your opponents. The last player standi
 ## How it plays
 
 - Create a room, share the 5-character code (or the link), and 2–6 players join. The host can add 🤖 bots.
+- **Animations:** dice tumble when rolled, pieces hop square by square, and a country's owner bar lights up in the
+  buyer's color when it is bought.
+- **Landing on a free country:** buy it, skip it, or put it up for **auction**. Everyone can bid at any time with
+  +$2, +$5 or +$50 buttons; the auction closes a few seconds after the last bid (host can turn auctions off).
+- **Bank loans** (optional, host setting): borrow $200 to $2000 on your turn and repay within 5 rounds (+ interest).
+  If you can't pay when it's due, the bank takes your cash if you have enough, otherwise you must choose a country to
+  sell to the bank.
 - **Every player picks their own name and piece color** in the lobby.
 - **The host picks the room settings** in the lobby: starting money, Go salary, bonus salary, turn timer, max players,
   houses & hotels on/off, rent inflation on/off, roll-again-on-doubles, and a Free Parking jackpot.

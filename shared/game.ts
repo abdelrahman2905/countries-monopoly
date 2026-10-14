@@ -17,12 +17,22 @@ export type Settings = {
   inflation: boolean; // rents rise over time so games end
   doublesRoll: boolean; // doubles give another roll
   freeParkingPot: boolean; // fines go to Free Parking, whoever lands there takes the pot
+  auctions: boolean; // a player who lands on a free country may auction it instead of buying
+  loans: boolean; // players may borrow from the bank and must repay within LOAN_ROUNDS rounds
+  loanInterest: number; // percent added to the borrowed amount
 };
 
 export const DEFAULT_SETTINGS: Settings = {
   startMoney: 1500, goSalary: 300, bonusAfterRounds: 5, bonusSalary: 1000, turnTimer: 90, maxPlayers: 6,
   buildings: true, inflation: true, doublesRoll: true, freeParkingPot: false,
+  auctions: true, loans: false, loanInterest: 10,
 };
+
+export const LOAN_ROUNDS = 5;
+export const LOAN_OPTIONS = [200, 500, 1000, 2000] as const;
+export const BID_INCREMENTS = [2, 5, 50] as const;
+export const AUCTION_FIRST_SECONDS = 15; // time to place a first bid
+export const AUCTION_BID_SECONDS = 8; // the auction ends this long after the last bid
 
 export const SETTING_OPTIONS = {
   startMoney: [1000, 1500, 2000, 3000, 5000],
@@ -31,6 +41,7 @@ export const SETTING_OPTIONS = {
   bonusSalary: [500, 1000, 1500, 2000],
   turnTimer: [0, 30, 60, 90, 120],
   maxPlayers: [2, 3, 4, 5, 6],
+  loanInterest: [0, 10, 20],
 } as const;
 
 /** What a player collects for passing Go right now. */
@@ -129,7 +140,11 @@ export type Player = {
   isBot: boolean;
 };
 
-export type Phase = "lobby" | "roll" | "action" | "over";
+// "auction": everyone bids on a free country; "sell": a player with an overdue loan must sell a country to the bank
+export type Phase = "lobby" | "roll" | "action" | "auction" | "sell" | "over";
+
+export type Loan = { debt: number; due: number }; // debt owed to the bank; due = round by which it must be repaid
+export type Auction = { square: number; bid: number; bidderId: string | null; deadline: number | null };
 
 export type GameState = {
   code: string;
@@ -142,6 +157,9 @@ export type GameState = {
   pot: number; // Free Parking jackpot
   turn: number; // index into players
   round: number; // completed rounds, drives rent inflation
+  rollCount: number; // increments on every roll (lets the UI animate each roll)
+  loans: Record<string, Loan>; // player id -> loan
+  auction: Auction | null;
   dice: [number, number] | null;
   canBuy: number | null; // square index offered for purchase
   extraRoll: boolean; // rolled doubles, rolls again after this action
@@ -158,6 +176,11 @@ export type Action =
   | { type: "START" }
   | { type: "ROLL" }
   | { type: "BUY" }
+  | { type: "AUCTION" }
+  | { type: "BID"; inc: number }
+  | { type: "TAKE_LOAN"; amount: number }
+  | { type: "REPAY" }
+  | { type: "SELL_COUNTRY"; square: number }
   | { type: "BUILD"; square: number }
   | { type: "SELL"; square: number }
   | { type: "END_TURN" };
@@ -166,7 +189,7 @@ export type Rng = () => number;
 
 export const newGame = (code: string): GameState => ({
   code, phase: "lobby", settings: { ...DEFAULT_SETTINGS }, hostId: null, players: [], owners: {}, houses: {},
-  pot: 0, turn: 0, round: 0, dice: null, canBuy: null, extraRoll: false, winnerId: null, turnDeadline: null, log: [],
+  pot: 0, turn: 0, round: 0, rollCount: 0, loans: {}, auction: null, dice: null, canBuy: null, extraRoll: false, winnerId: null, turnDeadline: null, log: [],
 });
 
 const say = (g: GameState, msg: string) => {
@@ -240,6 +263,7 @@ function pay(g: GameState, from: Player, to: Player | null, amount: number) {
   if (to) to.money += from.money;
   from.money = 0;
   from.bankrupt = true;
+  delete g.loans[from.id];
   for (const [i, o] of Object.entries(g.owners)) {
     if (o === from.id) { delete g.owners[Number(i)]; delete g.houses[Number(i)]; }
   }
@@ -383,29 +407,97 @@ function nextTurn(g: GameState) {
   g.dice = null;
   g.extraRoll = false;
   const n = g.players.length;
+  const start = g.turn;
   for (let i = 1; i <= n * 2; i++) {
-    const p = g.players[(g.turn + i) % n];
+    if (Math.floor((start + i) / n) > Math.floor((start + i - 1) / n)) g.round++; // passed the last seat: new round
+    const p = g.players[(start + i) % n];
     if (p.bankrupt) continue;
-    if ((g.turn + i) % n <= g.turn) g.round++;
-    g.turn = (g.turn + i) % n;
+    g.turn = (start + i) % n;
     if (p.jailed) {
       p.jailed = false;
       say(g, `🔒 ${p.name} is released from Jail but skips this turn.`);
       continue;
+    }
+    // overdue bank loan: the bank collects cash if the player has it, otherwise they must sell a country
+    const loan = g.loans[p.id];
+    if (loan && g.round >= loan.due) {
+      say(g, `🏦 ${p.name}'s loan of $${loan.debt} is overdue!`);
+      if (collectDebt(g, p)) { g.phase = "sell"; return; }
+      if (p.bankrupt) continue;
     }
     g.phase = "roll";
     return;
   }
 }
 
+/**
+ * Settle an overdue loan from cash where possible. Returns true if the player still has to
+ * choose a country to sell to the bank; false if the debt is gone (paid, or they went bankrupt).
+ */
+function collectDebt(g: GameState, p: Player): boolean {
+  const loan = g.loans[p.id];
+  if (!loan) return false;
+  if (p.money >= loan.debt) {
+    p.money -= loan.debt;
+    delete g.loans[p.id];
+    say(g, `🏦 The bank collected $${loan.debt} from ${p.name}.`);
+    return false;
+  }
+  const owned = Object.keys(g.owners).some((i) => g.owners[Number(i)] === p.id);
+  if (!owned) {
+    pay(g, p, null, loan.debt); // nothing left to sell: bankrupt
+    return false;
+  }
+  return true;
+}
+
+/** Value the bank pays when a player sells a country to it: its price plus half the building costs. */
+export const bankBuyPrice = (g: GameState, index: number): number => {
+  const s = BOARD[index];
+  return s.kind === "country" ? s.price + Math.floor(houseCost(index) / 2) * level(g, index) : 0;
+};
+
+/** Ends the auction: the highest bidder pays and gets the country (no bids = it stays unowned). */
+export function finishAuction(g: GameState) {
+  const a = g.auction;
+  if (!a) return;
+  const s = BOARD[a.square];
+  const winner = a.bidderId ? byId(g, a.bidderId) : undefined;
+  if (winner && s.kind === "country" && winner.money >= a.bid) {
+    winner.money -= a.bid;
+    g.owners[a.square] = winner.id;
+    say(g, `🔨 ${winner.name} won the auction for ${s.name} at $${a.bid}!`);
+  } else {
+    say(g, `🔨 Nobody bid for ${s.name}. It stays with the bank.`);
+  }
+  g.auction = null;
+  g.phase = "action";
+}
+
+/** Which bot (if any) should raise the auction right now, and by how much. */
+export function botAuctionBid(g: GameState, rng: Rng): { playerId: string; inc: number } | null {
+  const a = g.auction;
+  const s = a ? BOARD[a.square] : null;
+  if (!a || s?.kind !== "country") return null;
+  const limit = Math.floor(s.price * 0.85); // bots never bid more than 85% of the price
+  const candidates = g.players.filter((p) => p.isBot && !p.bankrupt && p.id !== a.bidderId);
+  while (candidates.length) {
+    const p = candidates.splice(Math.floor(rng() * candidates.length), 1)[0];
+    const inc = [...BID_INCREMENTS].reverse().find((x) => a.bid + x <= limit && p.money >= a.bid + x + 100);
+    if (inc && rng() < 0.6) return { playerId: p.id, inc };
+  }
+  return null;
+}
+
 /** Apply a player's action. Returns an error string if the action is illegal. */
 export function apply(g: GameState, playerId: string, a: Action, rng: Rng = Math.random): string | null {
   const err = applyInner(g, playerId, a, rng);
-  if (!err && g.phase === "action" && currentPlayer(g).bankrupt) {
+  if (!err && (g.phase === "action" || g.phase === "sell") && currentPlayer(g).bankrupt) {
     // went bust mid-turn: nothing left to do, move on
     checkWinner(g);
     if (!g.winnerId) nextTurn(g);
   }
+  if (!err) checkWinner(g);
   return err;
 }
 
@@ -478,6 +570,7 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       if (!myTurn) return "Not your turn.";
       const d1 = 1 + Math.floor(rng() * 6), d2 = 1 + Math.floor(rng() * 6);
       g.dice = [d1, d2];
+      g.rollCount++;
       const doubles = d1 === d2 && g.settings.doublesRoll;
       say(g, `${me.name} rolled ${d1} + ${d2}${doubles ? " (doubles!)" : ""}.`);
       g.extraRoll = doubles;
@@ -499,8 +592,74 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       g.canBuy = null;
       return null;
     }
+    case "AUCTION": {
+      if (!g.settings.auctions) return "Auctions are turned off in this room.";
+      if (g.phase !== "action" || g.canBuy === null) return "Nothing to auction.";
+      if (!myTurn) return "Not your turn.";
+      const s = BOARD[g.canBuy];
+      if (s.kind !== "country") return "Nothing to auction.";
+      g.auction = { square: g.canBuy, bid: Math.max(10, Math.round(s.price / 10)), bidderId: null, deadline: null };
+      g.canBuy = null;
+      g.phase = "auction";
+      say(g, `🔨 ${me.name} puts ${s.name} up for auction! Starting bid $${g.auction.bid}.`);
+      return null;
+    }
+    case "BID": {
+      const au = g.auction;
+      if (g.phase !== "auction" || !au) return "There is no auction right now.";
+      if (me.bankrupt) return "You are out of the game.";
+      if (!(BID_INCREMENTS as readonly number[]).includes(a.inc)) return "Invalid bid.";
+      if (au.bidderId === me.id) return "You already have the highest bid.";
+      const next = au.bid + a.inc;
+      if (me.money < next) return `You need $${next} to bid.`;
+      au.bid = next;
+      au.bidderId = me.id;
+      return null;
+    }
+    case "TAKE_LOAN": {
+      if (!g.settings.loans) return "Bank loans are turned off in this room.";
+      if (!myTurn || (g.phase !== "roll" && g.phase !== "action")) return "You can borrow on your own turn.";
+      if (g.loans[me.id]) return "Repay your current loan first.";
+      if (!(LOAN_OPTIONS as readonly number[]).includes(a.amount)) return "Invalid loan amount.";
+      const debt = Math.round(a.amount * (1 + g.settings.loanInterest / 100));
+      me.money += a.amount;
+      g.loans[me.id] = { debt, due: g.round + LOAN_ROUNDS };
+      say(g, `🏦 ${me.name} borrowed $${a.amount} from the bank and owes $${debt} within ${LOAN_ROUNDS} rounds.`);
+      return null;
+    }
+    case "REPAY": {
+      const loan = g.loans[me.id];
+      if (!loan) return "You have no loan.";
+      if (!myTurn || (g.phase !== "roll" && g.phase !== "action" && g.phase !== "sell")) return "You can repay on your own turn.";
+      if (me.money < loan.debt) return `You need $${loan.debt} to repay.`;
+      me.money -= loan.debt;
+      delete g.loans[me.id];
+      say(g, `🏦 ${me.name} repaid the bank $${loan.debt}.`);
+      if (g.phase === "sell") g.phase = "roll";
+      return null;
+    }
+    case "SELL_COUNTRY": {
+      const loan = g.loans[me.id];
+      if (g.phase !== "sell" || !loan || !myTurn) return "You don't have to sell anything.";
+      const idx = Number(a.square);
+      const s = BOARD[idx];
+      if (s?.kind !== "country" || g.owners[idx] !== me.id) return "You don't own that country.";
+      const value = bankBuyPrice(g, idx);
+      delete g.owners[idx];
+      delete g.houses[idx];
+      loan.debt -= value;
+      say(g, `🏦 ${me.name} sold ${s.name} to the bank for $${value} to pay the debt.`);
+      if (loan.debt <= 0) {
+        me.money += -loan.debt; // the bank pays back any surplus
+        delete g.loans[me.id];
+      } else if (collectDebt(g, me)) {
+        return null; // still owes the bank: sell another country
+      }
+      if (!me.bankrupt) g.phase = "roll";
+      return null;
+    }
     case "BUILD": {
-      if (!myTurn) return "You can only build on your own turn.";
+      if (!myTurn || (g.phase !== "roll" && g.phase !== "action")) return "You can only build on your own turn.";
       const idx = Number(a.square);
       const err = buildError(g, playerId, idx);
       if (err) return err;
@@ -510,7 +669,7 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
       return null;
     }
     case "SELL": {
-      if (!myTurn) return "You can only sell on your own turn.";
+      if (!myTurn || (g.phase !== "roll" && g.phase !== "action")) return "You can only sell on your own turn.";
       const idx = Number(a.square);
       const err = sellError(g, playerId, idx);
       if (err) return err;
@@ -536,11 +695,23 @@ function applyInner(g: GameState, playerId: string, a: Action, rng: Rng): string
 export function botAction(g: GameState, force = false): Action | null {
   const p = currentPlayer(g);
   if (!p || p.bankrupt || !(force || p.isBot || !p.connected)) return null;
+  const loan = g.loans[p.id];
+  if (g.phase === "sell") {
+    if (loan && p.money >= loan.debt) return { type: "REPAY" };
+    // sell the cheapest country that covers the whole debt, otherwise the most valuable one
+    const owned = BOARD.flatMap((s, i) => (g.owners[i] === p.id ? [i] : []));
+    const covering = owned.filter((i) => loan && bankBuyPrice(g, i) >= loan.debt).sort((x, y) => bankBuyPrice(g, x) - bankBuyPrice(g, y));
+    const pick = covering[0] ?? owned.sort((x, y) => bankBuyPrice(g, y) - bankBuyPrice(g, x))[0];
+    return pick === undefined ? null : { type: "SELL_COUNTRY", square: pick };
+  }
   if (g.phase === "roll") return { type: "ROLL" };
   if (g.phase === "action") {
+    if (loan && p.money >= loan.debt + 400) return { type: "REPAY" };
+    if (g.settings.loans && !loan && p.money < 150 && g.canBuy === null && g.round < 40) return { type: "TAKE_LOAN", amount: 500 };
     if (g.canBuy !== null) {
       const s = BOARD[g.canBuy];
       if (s.kind === "country" && p.money - s.price >= 150) return { type: "BUY" };
+      if (g.settings.auctions && g.canBuy % 2 === 0) return { type: "AUCTION" }; // bots sometimes put it up for auction
     }
     for (let i = 0; i < BOARD.length; i++) {
       if (g.owners[i] === p.id && houseCost(i) > 0 && p.money - houseCost(i) >= 250 && !buildError(g, p.id, i)) {

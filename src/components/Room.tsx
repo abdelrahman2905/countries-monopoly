@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
-import { BOARD, MIN_PLAYERS, currentPlayer, groupSquares, level, rentMultiplier, salaryFor, MAX_BUILD_LEVEL, type GameState, type Player } from "../../shared/game";
+import { useState } from "react";
+import { BOARD, MIN_PLAYERS, currentPlayer, groupSquares, level, MAX_BUILD_LEVEL, type GameState, type Player } from "../../shared/game";
 import { useGame } from "../lib/useGame";
+import { useBoardAnimation } from "../lib/useBoardAnimation";
+import BankCard from "./BankCard";
 import Board from "./Board";
+import TurnPanel from "./TurnPanel";
 import { Flag } from "./CountryArt";
 import ProfilePicker from "./ProfilePicker";
 import PropertyModal from "./PropertyModal";
@@ -120,67 +123,21 @@ function Lobby({ g, me, send }: { g: GameState; me: Player; send: Send }) {
   );
 }
 
-function Countdown({ deadline }: { deadline: number }) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(t);
-  }, []);
-  const left = Math.max(0, Math.ceil((deadline - now) / 1000));
-  return <div className={`text-xs ${left <= 10 ? "text-red-300" : "text-slate-300"}`}>⏱ {left}s left</div>;
-}
-
 function Game({ g, me, send, onLeave }: { g: GameState; me: Player; send: Send; onLeave: () => void }) {
   const [selected, setSelected] = useState<number | null>(null);
+  const anim = useBoardAnimation(g);
   const cur = currentPlayer(g);
   const myTurn = cur.id === me.id && g.phase !== "over" && !me.bankrupt;
-  const winner = g.players.find((p) => p.id === g.winnerId);
-  const buy = g.canBuy !== null ? BOARD[g.canBuy] : null;
-  const mult = rentMultiplier(g);
+  const canBorrow = myTurn && (g.phase === "roll" || g.phase === "action") && !anim.busy;
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <Board g={g} onSelect={setSelected}>
-        {g.phase === "over" ? (
-          <>
-            <div className="text-4xl">🏆</div>
-            <div className="text-xl font-extrabold">{winner?.name} wins!</div>
-            <button onClick={onLeave} className={`${btn} bg-indigo-600`}>Back to lobby</button>
-          </>
-        ) : (
-          <>
-            <div className="flex items-center gap-2 text-sm font-semibold sm:text-lg">
-              <span className="h-3 w-3 rounded-full ring-2 ring-white/70" style={{ background: cur.color }} />
-              {myTurn ? "Your turn!" : `${cur.name}'s turn`}
-              {cur.isBot && " 🤖"}
-              {!cur.connected && " (offline)"}
-            </div>
-            {myTurn && g.phase === "roll" && (
-              <button onClick={() => send({ type: "ROLL" })} className={`${btn} bg-indigo-500 text-base hover:bg-indigo-400 sm:text-lg`}>🎲 Roll dice</button>
-            )}
-            {myTurn && g.phase === "action" && (
-              <div className="flex flex-wrap justify-center gap-2">
-                {buy && buy.kind === "country" && (
-                  <button onClick={() => send({ type: "BUY" })} className={`${btn} flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500`}>
-                    <Flag iso={buy.iso} name={buy.name} className="w-6" /> Buy {buy.name} ${buy.price}
-                  </button>
-                )}
-                <button onClick={() => send({ type: "END_TURN" })} className={`${btn} bg-slate-600 hover:bg-slate-500`}>
-                  {g.extraRoll ? "Roll again" : "End turn"}
-                </button>
-              </div>
-            )}
-            {!myTurn && me.bankrupt && <div className="text-sm text-red-300">You are bankrupt, spectating.</div>}
-            {g.turnDeadline && <Countdown deadline={g.turnDeadline} />}
-            <div className="text-xs text-emerald-300">🏁 Passing Go pays ${salaryFor(g)}</div>
-            {g.settings.freeParkingPot && g.pot > 0 && <div className="text-xs text-amber-300">🅿️ Jackpot ${g.pot}</div>}
-            {mult > 1 && <div className="text-xs text-rose-300">Rent inflation ×{mult.toFixed(2)}</div>}
-            <div className="text-xs text-slate-400">Tap any country for details{g.settings.buildings ? " and to build" : ""}.</div>
-          </>
-        )}
+      <Board g={g} shown={anim.shown} rolling={anim.rolling} onSelect={setSelected}>
+        <TurnPanel g={g} me={me} busy={anim.busy} send={send} onLeave={onLeave} />
       </Board>
 
       <aside className="space-y-4">
+        {g.settings.loans && !me.bankrupt && <BankCard g={g} me={me} canAct={canBorrow} send={send} />}
         <section className={card}>
           <h3 className="mb-2 font-bold">Players</h3>
           <ul className="space-y-3">
@@ -191,7 +148,7 @@ function Game({ g, me, send, onLeave }: { g: GameState; me: Player; send: Send; 
                   <div className={`flex items-center gap-2 rounded-lg px-2 py-1 ${p.id === cur.id && g.phase !== "over" ? "bg-indigo-500/20 ring-1 ring-indigo-400" : ""}`}>
                     <span className="h-4 w-4 rounded-full" style={{ background: p.color }} />
                     <span className="flex-1 truncate font-medium">
-                      {p.name}{p.id === me.id && " (you)"}{p.isBot && " 🤖"}{p.jailed && " 🔒"}
+                      {p.name}{p.id === me.id && " (you)"}{p.isBot && " 🤖"}{p.jailed && " 🔒"}{g.loans[p.id] && <span className="ml-1 text-xs text-rose-300" title="Owes the bank">🏦 -${g.loans[p.id].debt}</span>}
                     </span>
                     <span className="font-mono font-semibold">{p.bankrupt ? "OUT" : `$${p.money}`}</span>
                   </div>

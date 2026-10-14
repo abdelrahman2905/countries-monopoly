@@ -2,7 +2,9 @@ import { SETTING_OPTIONS, type Settings } from "../../shared/game";
 
 type Props = { settings: Settings; editable: boolean; onChange: (patch: Partial<Settings>) => void };
 
-const toggles: { key: "buildings" | "inflation" | "doublesRoll" | "freeParkingPot"; label: string; hint: string }[] = [
+const toggles: { key: "buildings" | "inflation" | "doublesRoll" | "freeParkingPot" | "auctions" | "loans"; label: string; hint: string }[] = [
+  { key: "auctions", label: "Auctions", hint: "On a free country: buy it, skip it, or auction it (bids +$2 / +$5 / +$50)" },
+  { key: "loans", label: "Bank loans", hint: "Borrow from the bank, repay within 5 rounds or sell a country" },
   { key: "buildings", label: "Houses & hotels", hint: "Build on a full color set to raise the rent" },
   { key: "inflation", label: "Rent inflation", hint: "Rents rise over time so games always end" },
   { key: "doublesRoll", label: "Roll again on doubles", hint: "Doubles give you an extra turn" },
@@ -34,6 +36,7 @@ export default function SettingsPanel({ settings, editable, onChange }: Props) {
       {settings.bonusAfterRounds > 0 && select("bonusSalary", "Bonus Go salary", money)}
       {select("turnTimer", "Turn timer", (n) => (n ? `${n} seconds` : "off"))}
       {select("maxPlayers", "Max players", (n) => `${n} players`)}
+      {settings.loans && select("loanInterest", "Loan interest", (n) => `${n}%`)}
       <div className="space-y-2 border-t border-white/10 pt-3">
         {toggles.map((t) => (
           <label key={t.key} className={`flex items-start gap-3 ${editable ? "cursor-pointer" : "opacity-70"}`}>
