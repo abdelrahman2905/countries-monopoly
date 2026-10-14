@@ -75,14 +75,8 @@ npx wrangler deploy      # or: npm run deploy:server
 
 It prints your host, like `countries-monopoly.<your-subdomain>.workers.dev`.
 
-#### Auto-deploy the server from GitHub
-
-`.github/workflows/deploy-server.yml` redeploys the server on every push to `main` that touches `party/` or `shared/`
-(after the rules tests pass). One-time setup:
-
-1. Create a token at https://dash.cloudflare.com/profile/api-tokens with the **Edit Cloudflare Workers** template.
-2. Add it as a repository secret: `gh secret set CLOUDFLARE_API_TOKEN` (paste the token when asked).
-3. Add your account id too: `gh secret set CLOUDFLARE_ACCOUNT_ID --body <your-account-id>` (shown by `npx wrangler whoami`).
+The server is deployed by hand (`npm run deploy:server`) after changing `party/` or `shared/`. Deploy it before or together
+with the website, because the two must match.
 
 ### 2. Frontend on Vercel
 
