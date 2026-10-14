@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { GIVE_AMOUNTS, MAX_BUILD_LEVEL, MIN_PLAYERS, TEAMS, boardOf, currentPlayer, groupSquares, level, type GameState, type Player } from "../../shared/game";
 import { useGame } from "../lib/useGame";
 import { useBoardAnimation } from "../lib/useBoardAnimation";
+import { MAX_ZOOM, MIN_ZOOM, useBoardZoom } from "../lib/useBoardZoom";
 import BankCard from "./BankCard";
 import Board from "./Board";
 import TradePanel from "./TradePanel";
@@ -132,13 +133,19 @@ function Lobby({ g, me, send }: { g: GameState; me: Player; send: Send }) {
 function Game({ g, me, send, onLeave }: { g: GameState; me: Player; send: Send; onLeave: () => void }) {
   const [selected, setSelected] = useState<number | null>(null);
   const anim = useBoardAnimation(g);
-  const scroller = useRef<HTMLDivElement>(null);
+  const z = useBoardZoom(g.settings.teamMode, boardOf(g).length);
+  const [follow, setFollow] = useState(true);
+  const cur = currentPlayer(g);
   // the big map is wider than a phone: start centered so the action buttons in the middle are in view
   useEffect(() => {
-    const el = scroller.current;
-    if (el && el.scrollWidth > el.clientWidth) el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
-  }, [g.settings.teamMode]);
-  const cur = currentPlayer(g);
+    const el = z.wrapRef.current;
+    if (el && z.zoom === 1 && el.scrollWidth > el.clientWidth) el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
+  }, [g.settings.teamMode, z.boardW]);
+  // when zoomed in, the camera follows the piece that is moving
+  const movingPos = anim.shown[cur.id] ?? cur.pos;
+  useEffect(() => {
+    if (follow && z.zoom > 1) z.focusSquare(movingPos);
+  }, [movingPos, follow]);
   const myTurn = cur.id === me.id && g.phase !== "over" && !me.bankrupt;
   const canBorrow = myTurn && (g.phase === "roll" || g.phase === "action") && !anim.busy;
 
@@ -198,10 +205,28 @@ function Game({ g, me, send, onLeave }: { g: GameState; me: Player; send: Send; 
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <div ref={scroller} className="min-w-0 overflow-x-auto rounded-2xl">
-        <Board g={g} shown={anim.shown} rolling={anim.rolling} onSelect={setSelected}>
-          <TurnPanel g={g} me={me} busy={anim.busy} send={send} onLeave={onLeave} />
-        </Board>
+      <div className="min-w-0">
+        <div className="mb-2 flex flex-wrap items-center justify-end gap-2 text-sm text-white">
+          <span className="mr-auto hidden text-xs text-slate-400 sm:inline">Ctrl + scroll or pinch to zoom, drag to move around</span>
+          <button onClick={z.zoomOut} disabled={z.zoom <= MIN_ZOOM} aria-label="Zoom out" className="h-8 w-8 rounded-lg bg-white/10 text-lg font-bold hover:bg-white/20 disabled:opacity-30">−</button>
+          <span className="w-12 text-center font-mono">{Math.round(z.zoom * 100)}%</span>
+          <button onClick={z.zoomIn} disabled={z.zoom >= MAX_ZOOM} aria-label="Zoom in" className="h-8 w-8 rounded-lg bg-white/10 text-lg font-bold hover:bg-white/20 disabled:opacity-30">+</button>
+          <button onClick={z.reset} disabled={z.zoom === 1} className="rounded-lg bg-white/10 px-2.5 py-1.5 hover:bg-white/20 disabled:opacity-30">Reset</button>
+          <button onClick={() => z.focusSquare(me.pos)} className="rounded-lg bg-white/10 px-2.5 py-1.5 hover:bg-white/20" title="Scroll to your piece">📍 Me</button>
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-300" title="While zoomed in, the view follows whoever is moving">
+            <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} className="accent-indigo-500" /> Follow
+          </label>
+        </div>
+        <div
+          ref={z.wrapRef}
+          {...z.dragProps}
+          className={`min-w-0 overflow-auto rounded-2xl ${z.zoom > 1 ? "cursor-grab select-none" : ""}`}
+          style={{ touchAction: "pan-x pan-y", maxHeight: z.zoom > 1 ? "78vh" : undefined }}
+        >
+          <Board g={g} shown={anim.shown} rolling={anim.rolling} width={z.boardW} onSelect={setSelected}>
+            <TurnPanel g={g} me={me} busy={anim.busy} send={send} onLeave={onLeave} />
+          </Board>
+        </div>
       </div>
 
       <aside className="space-y-4">

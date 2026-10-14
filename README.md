@@ -20,6 +20,9 @@ Buy countries, collect rent, and bankrupt your opponents. The last player standi
   with houses or hotels can't be traded.
 - **Free country card:** one Chance card per game lets a player take any free country, as long as they own nothing
   in that color set yet.
+- **Zoom:** zoom the map from 100% to 350% with the +/− buttons, Ctrl + mouse wheel (or trackpad pinch), or a
+  two-finger pinch on a phone. Drag to move around, "📍 Me" jumps to your piece, and "Follow" keeps the view on
+  whoever is moving. Country names appear once the map is big enough to show them.
 - **Animations:** dice tumble when rolled, pieces hop square by square, and a country's owner bar lights up in the
   buyer's color when it is bought.
 - **Landing on a free country:** buy it, skip it, or put it up for **auction**. Everyone can bid at any time with

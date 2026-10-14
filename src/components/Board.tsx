@@ -3,7 +3,7 @@ import { MAX_BUILD_LEVEL, TEAMS, boardOf, groupColor, level, sideLength, type Ga
 import { Flag, Shape } from "./CountryArt";
 
 // Square index -> [row, col] on an N x N grid (N = side + 1), running clockwise from Go (bottom-right).
-function cell(i: number, side: number): [number, number] {
+export function cell(i: number, side: number): [number, number] {
   const n = side + 1;
   if (i <= side) return [n, n - i];
   if (i <= 2 * side) return [n - (i - side), 1];
@@ -17,6 +17,7 @@ type Props = {
   g: GameState;
   shown: Record<string, number>; // animated piece positions
   rolling: boolean;
+  width: number; // board width in px (base size x zoom)
   onSelect: (i: number) => void;
   children: React.ReactNode;
 };
@@ -39,7 +40,7 @@ function Dice({ dice, rolling, size }: { dice: [number, number] | null; rolling:
   );
 }
 
-export default function Board({ g, shown, rolling, onSelect, children }: Props) {
+export default function Board({ g, shown, rolling, width, onSelect, children }: Props) {
   const board = boardOf(g);
   const side = sideLength(board);
   const n = side + 1;
@@ -70,10 +71,9 @@ export default function Board({ g, shown, rolling, onSelect, children }: Props) 
 
   return (
     <div
-      className={`@container relative mx-auto grid aspect-square w-full rounded-2xl bg-slate-950 shadow-2xl ring-1 ring-white/10 ${
-        big ? "min-w-[780px] max-w-[1100px]" : "max-w-[720px]"
-      }`}
+      className="@container relative mx-auto grid aspect-square shrink-0 rounded-2xl bg-slate-950 shadow-2xl ring-1 ring-white/10"
       style={{
+        width,
         gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`,
         gridTemplateRows: `repeat(${n}, minmax(0, 1fr))`,
         gap: "2px",
@@ -95,7 +95,7 @@ export default function Board({ g, shown, rolling, onSelect, children }: Props) 
               className="relative flex flex-col items-center justify-center overflow-hidden rounded-[4px] bg-gradient-to-br from-slate-700 to-slate-800 text-center font-semibold text-slate-100"
             >
               <span style={{ fontSize: q(3.4) }} className="leading-none">{s.icon}</span>
-              <span style={{ marginTop: q(0.3) }} className={big ? "@max-[700px]:hidden" : "@max-[500px]:hidden"}>{s.name}</span>
+              <span style={{ marginTop: q(0.3) }} className={big ? "@max-[1150px]:hidden" : "@max-[500px]:hidden"}>{s.name}</span>
               {s.kind === "parking" && g.settings.freeParkingPot && g.pot > 0 && <span className="text-amber-300">${g.pot}</span>}
               <div className="absolute inset-x-0 flex flex-wrap items-center justify-center" style={{ bottom: q(0.6), gap: q(0.2) }}>
                 {here.map(token)}
@@ -134,7 +134,7 @@ export default function Board({ g, shown, rolling, onSelect, children }: Props) 
             <Flag iso={s.iso} name={s.name} className="relative" style={{ marginTop: q(0.25), width: big ? "68%" : "42%" }} />
             <span
               className={`relative max-w-full truncate px-[2px] font-extrabold leading-none text-slate-900 [text-shadow:0_0_3px_#fff,0_0_3px_#fff] ${
-                big ? "hidden" : "@max-[500px]:hidden"
+                big ? "@max-[1150px]:hidden" : "@max-[500px]:hidden"
               }`}
               style={{ marginTop: q(0.2), fontSize: q(1.35) }}
             >
